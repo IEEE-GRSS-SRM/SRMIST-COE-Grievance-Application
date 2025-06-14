@@ -49,3 +49,17 @@ The project uses the following schema:
 - user_department -> Department to which the user belongs to.
 
 ***
+
+## Extra Details For Some Segments
+
+### Google OAuth Feature
+- Get email, name, registration number from SRM mail Google OAuth.
+- If email already exists in the database, return their details in the database (all details, including role).
+- If email does not exist in the database, ask for user's campus and department using a dropdown box.
+- Register the user details in the database with the role 'user'.
+
+### Students Request Posting, Request Viewing and Timeline Viewing Page
+- Use the details returned from Google OAuth feature to implement the feature. refer the architecture diagram for more details.
+
+### Request Solving Page and Mailing Feature
+- Should work for both cases, admin or super admin solving the request.
