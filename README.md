@@ -27,7 +27,7 @@ The project uses the following schema:
 - solution_id -> Unique id of the solution in the database
 - solution_given_by -> Id of the admin / super admin that wrote the solution
 - solution_for_request_id -> Id of the request for which this solution was written.
-- solution_for_request_id
+- solution_title
 - solution_content
 - solution_media -> Any attachment files of the solution.
 - solution_created -> When the solution was published.
