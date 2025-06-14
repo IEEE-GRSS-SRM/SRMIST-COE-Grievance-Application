@@ -50,7 +50,7 @@ The project uses the following schema:
 
 ***
 
-## Extra Details For Some Segments
+## Extra Details For Project Segments
 
 ### Google OAuth Feature
 - Get email, name, registration number from SRM mail Google OAuth.
@@ -59,7 +59,14 @@ The project uses the following schema:
 - Register the user details in the database with the role 'user'.
 
 ### Students Request Posting, Request Viewing and Timeline Viewing Page
+- Make sure these pages only comes when the details returned from authentication contains role as 'user'.
 - Use the details returned from Google OAuth feature to implement the feature. refer the architecture diagram for more details.
 
 ### Request Solving Page and Mailing Feature
 - Should work for both cases, admin or super admin solving the request.
+
+### Admin Request Viewing Page
+- Make sure this page only comes when the details returned from authentication contains role as 'admin'.
+
+### Super Admin Analytics and Requests Viewing Page
+- Make sure this page only comes when the details returned from authentication contains role as 'super_admin'.
