@@ -9,6 +9,10 @@ The project uses the following schema:
 
 ![Project Schema](https://github.com/Yoshida28/qr-support-hub/blob/main/readme_stuff/COE%20Greivance%20App%20Schema.png)
 
+The schema was made on supabase.
+Project ID: xrwildhnakpfdkpjqzfm
+Anon Key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhyd2lsZGhuYWtwZmRrcGpxemZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU2NjczOTQsImV4cCI6MjA2MTI0MzM5NH0.yB1HtOI4InWrCECYUXrq43rWHAH8yJf0U2amM5QI06Y
+
 ***
 
 ### Requests - Contains Data of Requests put out by Users
@@ -47,6 +51,7 @@ The project uses the following schema:
 - user_registration_number -> Registration number of the user (can be obtained from google oauth using SRM mail).
 - user_campus -> Campus of user's university (eg., Kattangulatur).
 - user_department -> Department to which the user belongs to.
+- user_degree -> The degree whose learning / faculty work pertains to.
 
 ***
 
@@ -55,7 +60,7 @@ The project uses the following schema:
 ### Google OAuth Feature
 - Get email, name, registration number from SRM mail Google OAuth.
 - If email already exists in the database, return their details in the database (all details, including role).
-- If email does not exist in the database, ask for user's campus and department using a dropdown box.
+- If email does not exist in the database, ask for user's campus, department and degree using a dropdown box.
 - Register the user details in the database with the role 'user'.
 
 ### Students Request Posting, Request Viewing and Timeline Viewing Page
