@@ -11,9 +11,9 @@ The project uses the following schema:
 
 The schema was made on supabase.
 
-Project ID: xrwildhnakpfdkpjqzfm
+Project ID: ```xrwildhnakpfdkpjqzfm```
 
-Anon Key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhyd2lsZGhuYWtwZmRrcGpxemZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU2NjczOTQsImV4cCI6MjA2MTI0MzM5NH0.yB1HtOI4InWrCECYUXrq43rWHAH8yJf0U2amM5QI06Y
+Anon Key: ```eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhyd2lsZGhuYWtwZmRrcGpxemZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU2NjczOTQsImV4cCI6MjA2MTI0MzM5NH0.yB1HtOI4InWrCECYUXrq43rWHAH8yJf0U2amM5QI06Y```
 
 ***
 
