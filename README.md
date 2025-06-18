@@ -3,11 +3,11 @@
 ---
 The project follows the following architecture diagram:
 
-![COE Greivance App Diagram](https://github.com/user-attachments/assets/f7b8df05-f9b1-41f2-93de-4c944164f62a)
+![COE Greivance App Diagram](https://github.com/IEEE-GRSS-SRM/COE-Greivance-Application/blob/main/readme_stuff/COE%20Greivance%20App%20Architecture%20Diagram.png)
 ---
 The project uses the following schema:
 
-![Project Schema](https://github.com/Yoshida28/qr-support-hub/blob/main/readme_stuff/COE%20Greivance%20App%20Schema.png)
+![Project Schema](https://github.com/IEEE-GRSS-SRM/COE-Greivance-Application/blob/main/readme_stuff/supabase-schema.png).
 
 The schema was made on supabase.
 Project ID: xrwildhnakpfdkpjqzfm
