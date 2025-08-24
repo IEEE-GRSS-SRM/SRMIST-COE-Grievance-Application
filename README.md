@@ -1,4 +1,4 @@
-# COE Greivance Application
+# COE Grievance Application
 ### An app where you can report your problems regarding examinations to the exam admins of the university / college.
 ---
 The project follows the following architecture diagram:
