@@ -7,7 +7,7 @@ The project follows the following architecture diagram:
 ---
 The project uses the following schema:
 
-![Project Schema](https://github.com/IEEE-GRSS-SRM/COE-Greivance-Application/blob/main/readme_stuff/supabase-schema.png).
+![Project Schema](https://github.com/IEEE-GRSS-SRM/COE-Grievance-Application/blob/main/readme_stuff/supabase-schema.png).
 
 The schema was made on supabase.
 
