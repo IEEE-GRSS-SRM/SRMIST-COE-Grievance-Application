@@ -12,64 +12,69 @@ The project uses the following schema:
 The schema was made on supabase.
 
 ***
+## Examination Requests – Contains Data of Requests put out by Students
+- **id** → Unique id for the request in the database.
+- **title** → Title of the request.
+- **attachments** → Any attachment files of the request.
+- **created_at** → When the request was created.
+- **description** → Detailed content of the request.
+- **request_type** → Type of request (exam-related, certificate, etc.).
+- **department_id** → ID of the department the request is related to.
+- **updated_at** → When the request was last updated.
+- **resolution_notes** → Notes added when resolving the request.
+- **resolved_at** → When the request was marked as resolved.
+- **priority** → Priority of the request (low, medium, high).
+- **status** → Current status of the request (pending / resolved).
+- **student_id** → ID of the student who created the request.
+- **assigned_admin_id** → ID of the admin assigned to handle the request.
 
-### Requests - Contains Data of Requests put out by Users
-- request_id -> Unique id for the request in the database.
-- request_sender -> User id of the user who put out the request in the first place.
-- request_title
-- request_content
-- request_media -> Any attachment files of the request.
-- request_created_at -> When the request was published.
-- request_updated_at -> When the reqest was viewed and acknowledged by an admin / super admin.
-- request_status -> Status of the request (ongoing / completed).
+---
+
+## Request Responses – Contains Replies/Actions Taken for a Request
+- **id** → Unique id for the response.
+- **created_at** → When the response was created.
+- **request_id** → The request this response belongs to.
+- **response_text** → The text content of the response.
+- **response_type** → Type of response (acknowledgment / resolution / note).
+- **responder_id** → ID of the admin/staff who responded.
+- **attachments** → Any attachments included in the response.
+
+---
+
+## Email Notifications – Contains Logs of Emails Sent Regarding Requests
+- **id** → Unique id for the email notification.
+- **recipient_email** → Email address of the recipient.
+- **recipient_name** → Name of the recipient.
+- **request_id** → The request this email is related to.
+- **email_type** → Type of email (notification / reminder / resolution).
+- **subject** → Subject line of the email.
+- **content** → Body text of the email.
+- **sent_at** → Timestamp of when the email was sent.
+- **status** → Status of the email (sent / failed).
+- **attachments** → Any attachments included in the email.
+
+---
+
+## Profiles – Contains Data of Users (Students, Admins, Staff)
+- **id** → Unique id of the user profile.
+- **email** → User’s email address.
+- **full_name** → Full name of the user.
+- **role** → Role of the user (student / admin / staff).
+- **department_id** → ID of the department user belongs to (if applicable).
+- **student_id** → Student roll number / identifier.
+- **phone** → Contact number of the user.
+- **is_profile_complete** → Whether the user has completed profile setup.
+- **is_active** → Whether the profile is active.
+- **created_at** → When the profile was created.
+- **updated_at** → When the profile was last updated.
+- **avatar_url** → URL of the user’s profile picture.
+
+---
+
+## Departments – Contains Data of Different Departments in the Institution
+- **id** → Unique id of the department.
+- **name** → Name of the department.
+- **code** → Short code of the department.
+- **description** → Description of the department.
 
 ***
-
-### RequestSolutions - Contains Data of Solutions Written by Admins / Super Admins to Solve Requests
-- solution_id -> Unique id of the solution in the database
-- solution_given_by -> Id of the admin / super admin that wrote the solution
-- solution_for_request_id -> Id of the request for which this solution was written.
-- solution_title
-- solution_content
-- solution_media -> Any attachment files of the solution.
-- solution_created -> When the solution was published.
-
-***
-
-### SuperAdminRequests - Contains IDs of all Requests That Have Been Sent to Super Admin From Admin
-- super_admin_request_id -> Unique id of the super admin request in the database.
-- request_id -> Id of the request that was sent to the super admin.
-
-***
-
-### Users - Contains Data of Persons Using the App
-- user_id -> Unique id of the user in the database.
-- user_role -> Saying if they are just a regular user, or an admin, or a super admin.
-- user_name -> Full name of the user (can be obtained from google oauth using SRM mail).
-- user_registration_number -> Registration number of the user (can be obtained from google oauth using SRM mail).
-- user_campus -> Campus of user's university (eg., Kattangulatur).
-- user_department -> Department to which the user belongs to.
-- user_degree -> The degree whose learning / faculty work pertains to.
-
-***
-
-## Extra Details For Project Segments
-
-### Google OAuth Feature
-- Get email, name, registration number from SRM mail Google OAuth.
-- If email already exists in the database, return their details in the database (all details, including role).
-- If email does not exist in the database, ask for user's campus, department and degree using a dropdown box.
-- Register the user details in the database with the role 'user'.
-
-### Students Request Posting, Request Viewing and Timeline Viewing Page
-- Make sure these pages only comes when the details returned from authentication contains role as 'user'.
-- Use the details returned from Google OAuth feature to implement the feature. refer the architecture diagram for more details.
-
-### Request Solving Page and Mailing Feature
-- Should work for both cases, admin or super admin solving the request.
-
-### Admin Request Viewing Page
-- Make sure this page only comes when the details returned from authentication contains role as 'admin'.
-
-### Super Admin Analytics and Requests Viewing Page
-- Make sure this page only comes when the details returned from authentication contains role as 'super_admin'.
