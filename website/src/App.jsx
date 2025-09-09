@@ -79,7 +79,7 @@ function AppContent() {
       <Route path="/profile-setup" element={<ProtectedRoute element={<ProfileSetup />} />} />
       <Route path="/admin" element={<ProtectedRoute element={<AdminDashboard />} />} />
       <Route path="/index" element={<ProjectIndex />} />
-      <Route path="/" element={<ProjectIndex />} />
+      <Route path="/" element={<Login />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

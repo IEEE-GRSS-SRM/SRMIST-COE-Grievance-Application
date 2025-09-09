@@ -212,6 +212,9 @@ function RequestHistory() {
             <thead className="bg-gray-50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Request ID
+                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Request
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -231,6 +234,7 @@ function RequestHistory() {
             <tbody className="bg-white divide-y divide-gray-200">
               {requests.map((request) => (
                 <tr key={request.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-mono text-xs text-gray-700">{request.id}</td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-gray-900">{request.title}</div>
                     <div className="text-xs text-gray-500 capitalize">{request.request_type.replace('_', ' ')}</div>

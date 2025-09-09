@@ -17,6 +17,12 @@ const PRIORITY_LEVELS = [
   { value: 'urgent', label: 'Urgent' }
 ];
 
+const DEGREE_OPTIONS = [
+  { value: 'mtech', label: 'MTech' },
+  { value: 'btech', label: 'BTech' },
+  { value: 'mtech_int', label: 'MTech (int.)' }
+];
+
 function PriorityBadge({ priority }) {
   const colors = {
     low: 'bg-green-100 text-green-800 ring-1 ring-green-300',
@@ -65,6 +71,7 @@ function RequestForm({ onRequestSubmitted }) {
   const [file, setFile] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [department, setDepartment] = useState('');
+  const [degree, setDegree] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -92,6 +99,9 @@ function RequestForm({ onRequestSubmitted }) {
         setProfile(data);
         if (data.department_id) {
           setDepartment(data.department_id);
+        }
+        if (data.degree) {
+          setDegree(data.degree);
         }
       } catch (err) {
         console.error('Unexpected error fetching profile:', err);
@@ -212,6 +222,7 @@ function RequestForm({ onRequestSubmitted }) {
           description,
           request_type: requestType,
           priority,
+            degree,
           department_id: department,
           attachments: attachmentUrl ? [attachmentUrl] : [],
           status: 'pending'
@@ -225,7 +236,8 @@ function RequestForm({ onRequestSubmitted }) {
 
       // Get the request type label for the email
       const requestTypeLabel = REQUEST_TYPES.find(type => type.value === requestType)?.label || requestType;
-      const priorityLabel = PRIORITY_LEVELS.find(level => level.value === priority)?.label || priority;
+  const priorityLabel = PRIORITY_LEVELS.find(level => level.value === priority)?.label || priority;
+  const degreeLabel = DEGREE_OPTIONS.find(d => d.value === degree)?.label || degree;
 
       // Send confirmation email to the student
       if (profile && profile.email) {
@@ -244,6 +256,7 @@ Request Details:
 - Title: ${title}
 - Type: ${requestTypeLabel}
 - Priority: ${priorityLabel}
+- Degree: ${degreeLabel}
 - Department: ${departmentName}
 
 We have received your request and it is currently under review. You will be notified via email when there are updates on your request.
@@ -388,6 +401,21 @@ SRMIST Examination Control Team`,
           {departments.length === 0 && (
             <p className="text-xs text-gray-500 mt-1">Loading departments...</p>
           )}
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Degree</label>
+          <select
+            value={degree}
+            onChange={(e) => setDegree(e.target.value)}
+            className="form-select"
+            required
+          >
+            <option value="">Select Degree</option>
+            {DEGREE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
         
         <div>

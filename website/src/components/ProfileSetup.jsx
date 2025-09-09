@@ -11,10 +11,14 @@ function ProfileSetup() {
   const [phone, setPhone] = useState('');
   const [department, setDepartment] = useState('');
   const [departments, setDepartments] = useState([]);
+  const [degrees, setDegrees] = useState([]);
+  const [degree, setDegree] = useState('');
   const [email, setEmail] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
   
+  // ...existing code...
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -53,7 +57,27 @@ function ProfileSetup() {
       }
     };
 
+    // Fetch degrees
+    const fetchDegrees = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('degrees')
+          .select('*');
+
+        if (error) {
+          console.error('Error fetching degrees:', error);
+          setError('Failed to load degrees. Please try again.');
+        } else {
+          setDegrees(data);
+        }
+      } catch (err) {
+        console.error('Unexpected error:', err);
+        setError('An unexpected error occurred');
+      }
+    };
+
     fetchDepartments();
+    fetchDegrees();
   }, [session, supabase, navigate]);
 
   const handleAvatarChange = (e) => {
@@ -109,6 +133,7 @@ function ProfileSetup() {
           full_name: fullName,
           role: 'student', // Default role for new users
           department_id: department,
+          degree_id: degree,
           student_id: studentId,
           phone: phone,
           avatar_url: avatar_url,
@@ -196,13 +221,13 @@ function ProfileSetup() {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Student ID</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Registration Number</label>
             <input
               type="text"
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
               className="form-input"
-              placeholder="Your student ID number"
+              placeholder="Your Registration number"
               required
             />
           </div>
@@ -234,10 +259,27 @@ function ProfileSetup() {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Degree</label>
+            <select
+              value={degree}
+              onChange={(e) => setDegree(e.target.value)}
+              className="form-select"
+              required
+            >
+              <option value="">Select Your Degree</option>
+              {degrees.map((deg) => (
+                <option key={deg.id} value={deg.id}>
+                  {deg.name}
+                </option>
+              ))}
+            </select>
+          </div>
           
           <button
             type="submit"
-            disabled={loading || !department}
+            disabled={loading || !department || !degree}
             className={`w-full primary-button py-3 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             {loading ? (
@@ -256,4 +298,4 @@ function ProfileSetup() {
   );
 }
 
-export default ProfileSetup; 
+export default ProfileSetup;

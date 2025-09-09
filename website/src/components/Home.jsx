@@ -183,7 +183,7 @@ function Home() {
             <div className="flex flex-wrap items-center gap-2 text-gray-600">
               <span className="font-medium">{getGreeting()}, {profile.full_name.split(' ')[0]}</span>
               <span>•</span>
-              <span>ID: {profile.student_id}</span>
+              <span>Registration Number: {profile.student_id}</span>
               <span>•</span>
               <span>{profile.departments?.name || 'Department not set'}</span>
             </div>
@@ -216,12 +216,8 @@ function Home() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 order-2 lg:order-1">
-            <RequestHistory />
-          </div>
-          
-          <div className="lg:col-span-1 order-1 lg:order-2">
+        <div className="grid grid-cols-1 gap-8">
+          <div>
             <div className="glass-card p-6 card-hover">
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
                 <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -231,6 +227,10 @@ function Home() {
               </h2>
               <RequestForm onRequestSubmitted={refreshRequests} />
             </div>
+          </div>
+
+          <div>
+            <RequestHistory />
           </div>
         </div>
       </div>
