@@ -40,7 +40,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function RequestHistory() {
+function RequestHistory({ refreshKey = 0 }) {
   const { session, supabase } = useContext(AuthContext);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +49,35 @@ function RequestHistory() {
   const [responses, setResponses] = useState([]);
   const [loadingResponses, setLoadingResponses] = useState(false);
   const [profile, setProfile] = useState(null);
+  const [resubmitOpen, setResubmitOpen] = useState(false);
+  const [resubmitText, setResubmitText] = useState('');
+  const [resubmitFile, setResubmitFile] = useState(null);
+  const [resubmitting, setResubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deletingMine, setDeletingMine] = useState(false);
+
+  // Helper to fetch the student's requests
+  const fetchStudentRequests = async () => {
+    try {
+      setError(null);
+      const { data, error } = await supabase
+        .from('examination_requests')
+        .select(`
+            *,
+            departments:department_id (name, code),
+            branches:branch_id (branch_name)
+          `)
+        .eq('student_id', session.user.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setRequests(data || []);
+    } catch (err) {
+      console.error('Error fetching requests:', err);
+      setError('Failed to load your requests. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!session?.user) return;
@@ -85,34 +114,20 @@ function RequestHistory() {
       }
     };
     
-    const fetchStudentRequests = async () => {
-      try {
-        setError(null);
-        
-        const { data, error } = await supabase
-          .from('examination_requests')
-          .select(`
-            *,
-            departments:department_id (name, code)
-          `)
-          .eq('student_id', session.user.id)
-          .order('created_at', { ascending: false });
-          
-        if (error) {
-          throw error;
-        }
-        
-        setRequests(data || []);
-      } catch (err) {
-        console.error('Error fetching requests:', err);
-        setError('Failed to load your requests. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     fetchUserProfile();
-  }, [session, supabase]);
+
+    // Subscribe to realtime changes for this student's requests
+    const channel = supabase.channel('examination_requests_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'examination_requests', filter: `student_id=eq.${session.user.id}` }, (payload) => {
+        // Refetch on any insert/update/delete affecting this student's requests
+        fetchStudentRequests();
+      });
+    channel.subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch {}
+    };
+  }, [session, supabase, refreshKey]);
   
   const fetchResponses = async (requestId) => {
     if (!requestId) return;
@@ -149,6 +164,121 @@ function RequestHistory() {
   const closeDetails = () => {
     setSelectedRequest(null);
     setResponses([]);
+  };
+
+  const startResubmit = (request) => {
+    setSelectedRequest(request);
+    setResubmitOpen(true);
+    setResubmitText('');
+    setResubmitFile(null);
+  };
+
+  const handleDeleteSingle = async (request) => {
+    if (!request?.id || !session?.user) return;
+    const warn = request.status === 'terminated'
+      ? 'This request is TERMINATED. Are you sure you want to permanently delete it?'
+      : 'Are you sure you want to permanently delete this request?';
+    const ok = window.confirm(warn);
+    if (!ok) return;
+    try {
+      setDeletingId(request.id);
+      // Delete responses related to this request
+      const { error: respErr } = await supabase
+        .from('request_responses')
+        .delete()
+        .eq('request_id', request.id);
+      if (respErr) throw respErr;
+      // Delete the request, scoped to current user for safety
+      const { error: reqErr } = await supabase
+        .from('examination_requests')
+        .delete()
+        .eq('id', request.id)
+        .eq('student_id', session.user.id);
+      if (reqErr) throw reqErr;
+      // Update local state and close any open modals for this request
+      setRequests(prev => prev.filter(r => r.id !== request.id));
+      if (selectedRequest && selectedRequest.id === request.id) {
+        setSelectedRequest(null);
+        setResponses([]);
+      }
+      if (resubmitOpen && selectedRequest && selectedRequest.id === request.id) {
+        setResubmitOpen(false);
+        setResubmitText('');
+        setResubmitFile(null);
+      }
+    } catch (err) {
+      console.error('Delete request failed:', err);
+      alert('Failed to delete the request. ' + (err.message || ''));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleResubmit = async () => {
+    if (!selectedRequest) return;
+    if (!resubmitText.trim() && !resubmitFile) {
+      alert('Please provide additional information or attach a supporting file.');
+      return;
+    }
+    try {
+      setResubmitting(true);
+      // Upload attachment if any
+      let attachmentUrl = null;
+      if (resubmitFile) {
+        const ext = resubmitFile.name.split('.').pop().toLowerCase();
+        const allowed = ['pdf','jpg','jpeg','png','gif','xls','xlsx'];
+        if (!allowed.includes(ext)) throw new Error('Unsupported file type.');
+        const ts = Date.now();
+        const fileName = `resubmit_${selectedRequest.id}_${ts}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('request-attachments')
+          .upload(fileName, resubmitFile, { cacheControl: '3600', upsert: false, contentType: resubmitFile.type });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('request-attachments').getPublicUrl(fileName);
+        attachmentUrl = pub.publicUrl;
+      }
+
+      // Append resubmission note to description for student visibility, keep same request id
+      const resubmitNote = `\n\n[Resubmission on ${new Date().toLocaleString()}]\n${resubmitText}`;
+      const newAttachments = attachmentUrl ? [ ...(selectedRequest.attachments || []), attachmentUrl ] : selectedRequest.attachments || [];
+
+      // Update request status back to pending and append info
+      const { error: updErr } = await supabase
+        .from('examination_requests')
+        .update({
+          status: 'pending',
+          description: (selectedRequest.description || '') + resubmitNote,
+          attachments: newAttachments
+        })
+        .eq('id', selectedRequest.id);
+      if (updErr) throw updErr;
+
+      // Add a response trail item of type 'resubmission'
+      await supabase.from('request_responses').insert({
+        request_id: selectedRequest.id,
+        responder_id: session.user.id,
+        response_text: resubmitText,
+        response_type: 'resubmission',
+        attachments: attachmentUrl ? [attachmentUrl] : []
+      });
+
+      // Refresh list
+      // Update local state optimistically
+      setRequests(prev => prev.map(r => r.id === selectedRequest.id ? {
+        ...r,
+        status: 'pending',
+        description: (r.description || '') + resubmitNote,
+        attachments: newAttachments
+      } : r));
+
+      setResubmitOpen(false);
+      setSelectedRequest(null);
+    } catch (err) {
+      console.error('Resubmit failed:', err);
+      alert('Failed to resubmit: ' + (err.message || 'Unknown error'));
+    } finally {
+      setResubmitting(false);
+    }
   };
 
   // If the user is an admin, don't show this component
@@ -195,7 +325,57 @@ function RequestHistory() {
           </svg>
           Request History
         </h2>
-        <span className="text-sm text-gray-500">{requests.length} {requests.length === 1 ? 'request' : 'requests'}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">{requests.length} {requests.length === 1 ? 'request' : 'requests'}</span>
+          {profile?.role === 'student' && requests.length > 0 && (
+            <button
+              className={`danger-button text-xs py-1 px-2 ${deletingMine ? 'opacity-70 cursor-not-allowed' : ''}`}
+              disabled={deletingMine}
+              onClick={async () => {
+                if (deletingMine) return;
+                const hasTerminated = requests.some(r => r.status === 'terminated');
+                const message = hasTerminated
+                  ? 'Are you sure you want to delete ALL your requests? This includes terminated requests.'
+                  : 'Are you sure you want to delete ALL your requests?';
+                const ok = window.confirm(message);
+                if (!ok) return;
+                try {
+                  setDeletingMine(true);
+                  // fetch ids for this user (fresh to avoid race)
+                  const { data: myRows, error: fetchErr } = await supabase
+                    .from('examination_requests')
+                    .select('id')
+                    .eq('student_id', session.user.id);
+                  if (fetchErr) throw fetchErr;
+                  const ids = (myRows || []).map(r => r.id);
+                  if (ids.length === 0) return;
+                  // delete responses first
+                  const { error: delRespErr } = await supabase
+                    .from('request_responses')
+                    .delete()
+                    .in('request_id', ids);
+                  if (delRespErr) throw delRespErr;
+                  // delete requests
+                  const { error: delReqErr } = await supabase
+                    .from('examination_requests')
+                    .delete()
+                    .in('id', ids)
+                    .eq('student_id', session.user.id);
+                  if (delReqErr) throw delReqErr;
+                  // refresh
+                  await fetchStudentRequests();
+                } catch (err) {
+                  console.error('Delete my requests failed:', err);
+                  alert('Failed to delete your requests. ' + (err.message || ''));
+                } finally {
+                  setDeletingMine(false);
+                }
+              }}
+            >
+              {deletingMine ? 'Deleting…' : 'Delete All My Requests'}
+            </button>
+          )}
+        </div>
       </div>
       
       {requests.length === 0 ? (
@@ -208,18 +388,16 @@ function RequestHistory() {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+          <div className="max-h-96 overflow-y-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Request ID
-                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Request ID</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Request
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Department
-                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date
                 </th>
@@ -239,33 +417,59 @@ function RequestHistory() {
                     <div className="text-sm font-medium text-gray-900">{request.title}</div>
                     <div className="text-xs text-gray-500 capitalize">{request.request_type.replace('_', ' ')}</div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{request.departments?.name || 'Unknown'}</div>
-                  </td>
+                  <td className="px-6 py-4"><div className="text-sm text-gray-900">{request.departments?.name || 'Unknown'}</div></td>
+                  <td className="px-6 py-4"><div className="text-sm text-gray-900">{request.branches?.branch_name || '-'}</div></td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-500">
                       {new Date(request.created_at).toLocaleDateString()}
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <StatusBadge status={request.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={request.status} />
+                      {request.viewed && (
+                        <span title="Viewed by faculty/admin" className="inline-flex items-center text-green-700 bg-green-100 border border-green-200 px-2 py-0.5 rounded-full text-[10px]">
+                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                          Viewed
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm">
-                    <button
-                      onClick={() => handleViewDetails(request)}
-                      className="text-blue-600 hover:text-blue-800 font-medium flex items-center"
-                    >
-                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                      </svg>
-                      View
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleViewDetails(request)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                        View
+                      </button>
+                      {request.status === 'terminated' && (
+                        <button
+                          onClick={() => startResubmit(request)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
+                        >
+                          Resubmit
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteSingle(request)}
+                        disabled={deletingId === request.id}
+                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 ${deletingId === request.id ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h10"/></svg>
+                        {deletingId === request.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
       
@@ -293,11 +497,23 @@ function RequestHistory() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Status</p>
-                  <StatusBadge status={selectedRequest.status} />
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={selectedRequest.status} />
+                    {selectedRequest.viewed && (
+                      <span className="inline-flex items-center text-green-700 bg-green-100 border border-green-200 px-2 py-0.5 rounded-full text-[10px]">
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        Viewed by Faculty
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Department</p>
                   <p className="text-sm">{selectedRequest.departments?.name || 'Unknown'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Branch</p>
+                  <p className="text-sm">{selectedRequest.branches?.branch_name || '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Submitted On</p>
@@ -379,6 +595,35 @@ function RequestHistory() {
                 className="secondary-button"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resubmitOpen && selectedRequest && (
+        <div className="modal-overlay">
+          <div className="modal-container">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-800">Resubmit Request</h3>
+              <button onClick={() => setResubmitOpen(false)} className="text-gray-500 hover:text-gray-700" aria-label="Close">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <div className="mb-4 text-sm text-gray-600">You're resubmitting the same request. The Request ID will remain unchanged.</div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Additional Information</label>
+              <textarea value={resubmitText} onChange={(e)=>setResubmitText(e.target.value)} className="form-input min-h-[120px]" placeholder="Provide additional details or clarifications" />
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Attachment (optional)</label>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.xls,.xlsx" onChange={(e)=>setResubmitFile(e.target.files[0])} />
+              <p className="text-xs text-gray-500 mt-1">Accepted: PDF, Images, Excel</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button className="secondary-button" onClick={()=>setResubmitOpen(false)}>Cancel</button>
+              <button className={`primary-button ${resubmitting ? 'opacity-70 cursor-not-allowed':''}`} onClick={handleResubmit} disabled={resubmitting}>
+                {resubmitting ? 'Submitting...' : 'Resubmit'}
               </button>
             </div>
           </div>

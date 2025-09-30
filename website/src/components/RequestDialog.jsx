@@ -1,7 +1,6 @@
 import { useState, useContext, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthContext } from './AuthProvider';
-import { createEmailNotification } from '../utils/emailService';
 
 // Request types and priority levels
 const REQUEST_TYPES = [
@@ -120,40 +119,7 @@ function RequestDialog({ onClose, onSubmit, userProfile }) {
         requestId
       });
 
-      // Send confirmation email to the student if profile is available
-      if (userProfile && userProfile.email && session) {
-        try {
-          const emailData = {
-            recipientEmail: userProfile.email,
-            recipientName: userProfile.full_name || userProfile.email,
-            requestId: requestId,
-            emailType: 'request_created',
-            subject: `Request Confirmation: ${title}`,
-            content: `Dear ${userProfile.full_name || 'Student'},
-
-Your request has been successfully submitted to the SRM Examination Control Portal.
-
-Request Details:
-- Title: ${title}
-- Type: ${requestTypeLabel}
-- Priority: ${priorityLabel}
-- Department: ${departmentName}
-
-We have received your request and it is currently under review. You will be notified via email when there are updates on your request.
-
-Thank you for your patience.
-
-Regards,
-SRMIST Examination Control Team`
-          };
-
-          await createEmailNotification(supabase, emailData);
-          console.log('Confirmation email sent to student');
-        } catch (emailError) {
-          console.error('Failed to send confirmation email:', emailError);
-          // Don't throw error here, as the request was successfully created
-        }
-      }
+      // Email notifications removed
       
       // Reset form
       setTitle('');

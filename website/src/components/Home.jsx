@@ -5,13 +5,13 @@ import RequestForm from './RequestForm';
 import RequestHistory from './RequestHistory';
 import AdminDashboard from './AdminDashboard';
 import ProfileSetup from './ProfileSetup';
-import { processEmailQueue } from '../utils/emailService';
 
 function Home() {
   const { session, supabase, authError } = useContext(AuthContext);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const navigate = useNavigate();
 
   // Function to ensure storage buckets exist
@@ -97,13 +97,7 @@ function Home() {
         } else {
           setProfile(data);
           
-          // Process email queue when admin logs in
-          if (data.role === 'admin' || data.role === 'super_admin') {
-            console.log('Admin user detected, processing email queue');
-            processEmailQueue(supabase).catch(err => 
-              console.error('Failed to process email queue:', err)
-            );
-          }
+          // Email queue processing removed
         }
       } catch (err) {
         console.error('Unexpected error:', err);
@@ -117,8 +111,8 @@ function Home() {
   }, [session, supabase, navigate]);
 
   const refreshRequests = () => {
-    // This function is passed to RequestForm to refresh RequestHistory after submission
-    // The component will re-render which will reload the requests
+    // Trigger RequestHistory to refetch
+    setRefreshKey((k) => k + 1);
   };
 
   if (loading) {
@@ -230,7 +224,7 @@ function Home() {
           </div>
 
           <div>
-            <RequestHistory />
+            <RequestHistory refreshKey={refreshKey} />
           </div>
         </div>
       </div>

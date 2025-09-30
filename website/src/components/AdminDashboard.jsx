@@ -1,6 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from './AuthProvider';
-import { createEmailNotification, sendTestEmail, checkEmailApiConnection, getEmailTypeConstraints } from '../utils/emailService';
 
 function StatusBadge({ status }) {
   const statusStyles = {
@@ -34,9 +33,30 @@ function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [previousResponses, setPreviousResponses] = useState([]);
   const [loadingResponses, setLoadingResponses] = useState(false);
-  const [testingEmail, setTestingEmail] = useState(false);
-  const [emailTestMessage, setEmailTestMessage] = useState('');
-  const [emailTestSuccess, setEmailTestSuccess] = useState(true);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('info'); // 'info' | 'warning' | 'error' | 'success'
+  const [deletingResolved, setDeletingResolved] = useState(false);
+  // Stats for super admin home
+  const [homeStats, setHomeStats] = useState({
+    totalRequests: 0,
+    byStatus: { pending: 0, escalated: 0, resolved: 0, terminated: 0 },
+    totalStudents: 0,
+    totalAdmins: 0,
+    totalSuperAdmins: 0,
+    departments: 0,
+    branches: 0
+  });
+  // Pie chart range filter state (Home tab)
+  const [pieFrom, setPieFrom] = useState('');
+  const [pieTo, setPieTo] = useState('');
+  const [pieStats, setPieStats] = useState({ total: 0, byStatus: { pending: 0, escalated: 0, resolved: 0, terminated: 0 } });
+  const [overviewRangeStats, setOverviewRangeStats] = useState({ departments: 0, branches: 0, byStatus: { pending: 0, escalated: 0, resolved: 0, terminated: 0 } });
+
+  const showToast = (msg, type = 'info') => {
+    setToastMessage(msg);
+    setToastType(type);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
 
   useEffect(() => {
     if (!session?.user) return;
@@ -65,8 +85,11 @@ function AdminDashboard() {
           return;
         }
         
+  // Set default tab for super_admin to home, else pending
+  const initialTab = data.role === 'super_admin' ? 'home' : 'pending';
+        setTab(initialTab);
         // Fetch requests after profile is loaded
-        await fetchRequests(data, 'pending');
+        await fetchRequests(data, initialTab);
       } catch (err) {
         console.error('Error in fetchAdminProfile:', err);
         setError('Failed to load your profile information: ' + (err.message || 'Unknown error'));
@@ -123,6 +146,7 @@ function AdminDashboard() {
         .select(`
           *,
           departments:department_id(*),
+          branches:branch_id(*),
           student:student_id(id, full_name, email, student_id, phone),
           responses:request_responses(*)
         `)
@@ -134,22 +158,73 @@ function AdminDashboard() {
         query = query.eq('department_id', adminProfile.department_id);
       }
       
-      // For super_admin role, we have special handling
+      // For super_admin role, allow viewing across all departments
       if (adminProfile.role === 'super_admin') {
-        if (tab === 'pending') {
-          // Super admins see only escalated requests in the pending tab
-          console.log('Super admin viewing escalated requests in pending tab');
-          query = query.eq('status', 'escalated');
+        if (tab === 'home') {
+          // Build stats instead of listing
+          const [allReq, pend, esc, res, ter, students, admins, superAdmins, depts, brs] = await Promise.all([
+            supabase.from('examination_requests').select('id', { count: 'exact', head: true }),
+            supabase.from('examination_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+            supabase.from('examination_requests').select('id', { count: 'exact', head: true }).eq('status', 'escalated'),
+            supabase.from('examination_requests').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
+            supabase.from('examination_requests').select('id', { count: 'exact', head: true }).eq('status', 'terminated'),
+            supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'student'),
+            supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'admin'),
+            supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'super_admin'),
+            supabase.from('departments').select('id', { count: 'exact', head: true }),
+            supabase.from('branches').select('id', { count: 'exact', head: true })
+          ]);
+          const nextHome = {
+            totalRequests: allReq.count || 0,
+            byStatus: {
+              pending: pend.count || 0,
+              escalated: esc.count || 0,
+              resolved: res.count || 0,
+              terminated: ter.count || 0,
+            },
+            totalStudents: students.count || 0,
+            totalAdmins: admins.count || 0,
+            totalSuperAdmins: superAdmins.count || 0,
+            departments: depts.count || 0,
+            branches: brs.count || 0
+          };
+          setHomeStats(nextHome);
+          // Initialize pie stats with global counts by default
+          setPieStats({
+            total: (allReq.count || 0),
+            byStatus: {
+              pending: pend.count || 0,
+              escalated: esc.count || 0,
+              resolved: res.count || 0,
+              terminated: ter.count || 0,
+            }
+          });
+          // Initialize overview range stats to global snapshot
+          setOverviewRangeStats({
+            departments: nextHome.departments,
+            branches: nextHome.branches,
+            byStatus: { ...nextHome.byStatus }
+          });
+          setRequests([]);
+          setFilteredRequests([]);
+          setLoadingRequests(false);
+          setLoading(false);
+          return;
+        } else if (tab === 'all') {
+          console.log('Super admin viewing all requests (no status filter)');
+          // No additional status filter; query already selects across all departments
         } else if (tab === 'resolved') {
-          // Show only resolved requests that were previously escalated or resolved by super_admin
-          console.log('Super admin viewing resolved requests');
+          console.log('Super admin viewing all resolved requests');
           query = query.eq('status', 'resolved');
-          // We'll filter for super_admin resolved requests after fetching
+        } else if (tab === 'escalated') {
+          console.log('Super admin viewing all escalated requests');
+          query = query.eq('status', 'escalated');
         } else if (tab === 'terminated') {
-          // Show only terminated requests that were previously escalated or terminated by super_admin
-          console.log('Super admin viewing terminated requests');
+          console.log('Super admin viewing all terminated requests');
           query = query.eq('status', 'terminated');
-          // We'll filter for super_admin terminated requests after fetching
+        } else if (tab === 'pending') {
+          console.log('Super admin viewing all pending requests');
+          query = query.eq('status', 'pending');
         }
       } else {
         // Regular admin tab filters
@@ -183,45 +258,8 @@ function AdminDashboard() {
       
       console.log(`Requests loaded for ${tab} tab:`, data?.length || 0);
       
-      // For super_admin, filter resolved and terminated requests to only show those handled by super_admin
+      // For super_admin, no extra filtering – they can view all matching the tab
       let filteredData = data;
-      
-      if (adminProfile.role === 'super_admin' && data) {
-        if (tab === 'resolved' || tab === 'terminated') {
-          // Get all super_admin user IDs
-          const { data: superAdmins, error: superAdminError } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('role', 'super_admin');
-            
-          if (superAdminError) {
-            console.error('Error fetching super_admin IDs:', superAdminError);
-          } else if (superAdmins) {
-            const superAdminIds = superAdmins.map(admin => admin.id);
-            console.log('Super admin IDs:', superAdminIds);
-            
-            // Filter requests to only include those that were previously escalated
-            // or were resolved/terminated by a super_admin
-            filteredData = data.filter(request => {
-              // Check if this request was ever escalated
-              const wasEscalated = request.responses && request.responses.some(
-                response => response.response_type === 'escalation'
-              );
-              
-              // Check if this request was resolved/terminated by a super_admin
-              const handledBySuperAdmin = request.responses && request.responses.some(
-                response => 
-                  (response.response_type === 'resolution' || response.response_type === 'termination') && 
-                  superAdminIds.includes(response.responder_id)
-              );
-              
-              return wasEscalated || handledBySuperAdmin;
-            });
-            
-            console.log(`Filtered requests for super_admin ${tab} tab:`, filteredData.length);
-          }
-        }
-      }
       
       // Verify student data is loaded correctly
       if (filteredData && filteredData.length > 0) {
@@ -258,12 +296,92 @@ function AdminDashboard() {
       setLoading(false);
     }
   };
+
+  // Helper to compute pie stats with optional date range
+  const updatePieStats = async (fromDate, toDate) => {
+    try {
+      let startISO = null;
+      let endISO = null;
+      if (fromDate) {
+        startISO = new Date(`${fromDate}T00:00:00`).toISOString();
+      }
+      if (toDate) {
+        endISO = new Date(`${toDate}T23:59:59.999`).toISOString();
+      }
+
+      const base = (status) => {
+        let q = supabase.from('examination_requests').select('id', { count: 'exact', head: true });
+        if (status) q = q.eq('status', status);
+        if (startISO) q = q.gte('created_at', startISO);
+        if (endISO) q = q.lte('created_at', endISO);
+        return q;
+      };
+
+      const depRowsQ = (() => {
+        let q = supabase.from('examination_requests').select('department_id');
+        if (startISO) q = q.gte('created_at', startISO);
+        if (endISO) q = q.lte('created_at', endISO);
+        return q;
+      })();
+      const brRowsQ = (() => {
+        let q = supabase.from('examination_requests').select('branch_id');
+        if (startISO) q = q.gte('created_at', startISO);
+        if (endISO) q = q.lte('created_at', endISO);
+        return q;
+      })();
+
+      const [allReq, pend, esc, res, ter, depRows, brRows] = await Promise.all([
+        base(),
+        base('pending'),
+        base('escalated'),
+        base('resolved'),
+        base('terminated'),
+        depRowsQ,
+        brRowsQ,
+      ]);
+
+      setPieStats({
+        total: allReq.count || 0,
+        byStatus: {
+          pending: pend.count || 0,
+          escalated: esc.count || 0,
+          resolved: res.count || 0,
+          terminated: ter.count || 0,
+        }
+      });
+      // Compute distinct counts for departments / branches within range
+      const depCount = Array.isArray(depRows?.data) ? new Set(depRows.data.map(r => r.department_id).filter(v => v != null)).size : 0;
+      const brCount = Array.isArray(brRows?.data) ? new Set(brRows.data.map(r => r.branch_id).filter(v => v != null)).size : 0;
+      setOverviewRangeStats({
+        departments: depCount,
+        branches: brCount,
+        byStatus: {
+          pending: pend.count || 0,
+          escalated: esc.count || 0,
+          resolved: res.count || 0,
+          terminated: ter.count || 0,
+        }
+      });
+    } catch (err) {
+      console.error('Failed to update pie stats:', err);
+      showToast('Failed to update chart. Try a different date range.', 'error');
+    }
+  };
   
   const handleViewDetails = async (request) => {
     setSelectedRequest(request);
     setResponseText('');
     setResponseFile(null);
     setFilePreview(null);
+    // Mark as viewed using the boolean column on examination_requests
+    try {
+      await supabase
+        .from('examination_requests')
+        .update({ viewed: true })
+        .eq('id', request.id);
+    } catch (markErr) {
+      console.warn('Could not mark request as viewed (boolean):', markErr?.message || markErr);
+    }
     
     // Fetch previous responses for this request
     try {
@@ -275,6 +393,7 @@ function AdminDashboard() {
           responder:responder_id (full_name, role)
         `)
         .eq('request_id', request.id)
+        .neq('response_type', 'viewed')
         .order('created_at', { ascending: true });
         
       if (error) {
@@ -291,6 +410,7 @@ function AdminDashboard() {
   
   const handleResolve = async () => {
     if (!selectedRequest || !responseText.trim()) {
+      showToast('please fill the respond to request', 'warning');
       return;
     }
     
@@ -392,116 +512,7 @@ function AdminDashboard() {
         throw updateError;
       }
       
-      // Get the student's email if not already available in the selectedRequest
-      let studentEmail = selectedRequest.student?.email;
-      let studentName = selectedRequest.student?.full_name;
-      
-      // If student email is not available, fetch it directly
-      if (!studentEmail) {
-        console.log('Student email not found in request data, fetching directly...');
-        const { data: studentData, error: studentError } = await supabase
-          .from('profiles')
-          .select('email, full_name')
-          .eq('id', selectedRequest.student_id)
-          .single();
-          
-        if (studentError) {
-          console.error('Error fetching student data:', studentError);
-        } else if (studentData) {
-          studentEmail = studentData.email;
-          studentName = studentData.full_name;
-          console.log('Found student email:', studentEmail);
-        }
-      }
-      
-      // Create and send email notification
-      console.log('Creating email notification...');
-      if (studentEmail) {
-        // Customize the email subject and content based on whether it was escalated and resolved by super_admin
-        const wasEscalated = selectedRequest.status === 'escalated';
-        const resolvedBySuperAdmin = profile?.role === 'super_admin';
-        
-        let emailSubject = `Your Request "${selectedRequest.title}" Has Been Resolved`;
-        if (wasEscalated && resolvedBySuperAdmin) {
-          emailSubject = `Your Escalated Request "${selectedRequest.title}" Has Been Resolved by Senior Administration`;
-        }
-        
-        let emailIntro = `Your request "${selectedRequest.title}" has been resolved. Here's the resolution:`;
-        if (wasEscalated && resolvedBySuperAdmin) {
-          emailIntro = `Your escalated request "${selectedRequest.title}" has been reviewed and resolved by senior administration. Here's their response:`;
-        }
-        
-        const emailData = {
-          recipientEmail: studentEmail,
-          recipientName: studentName || 'Student',
-          requestId: selectedRequest.id,
-          emailType: 'request_resolved',
-          subject: emailSubject,
-          content: `Dear ${studentName || 'Student'},
-
-${emailIntro}
-
-${responseText}
-
-Thank you for your patience.
-
-Regards,
-SRMIST Examination Control Team`,
-          attachments: attachmentUrl ? [attachmentUrl] : []
-        };
-        
-        console.log('Email notification data:', emailData);
-        
-        const emailResult = await createEmailNotification(supabase, emailData);
-        console.log('Email notification created:', emailResult);
-      } else {
-        console.error('Could not send email notification: Student email not found');
-      }
-      
-      // If this was an escalated request resolved by super_admin, also notify the original admin
-      if (selectedRequest.status === 'escalated' && profile?.role === 'super_admin' && selectedRequest.assigned_admin_id) {
-        try {
-          // Get the original admin's details
-          const { data: adminData, error: adminError } = await supabase
-            .from('profiles')
-            .select('email, full_name')
-            .eq('id', selectedRequest.assigned_admin_id)
-            .single();
-            
-          if (adminError) {
-            console.error('Error fetching original admin data:', adminError);
-          } else if (adminData && adminData.email) {
-            // Send notification to the original admin
-            const adminEmailData = {
-              recipientEmail: adminData.email,
-              recipientName: adminData.full_name || 'Administrator',
-              requestId: selectedRequest.id,
-              emailType: 'request_resolved',
-              subject: `Escalated Request "${selectedRequest.title}" Resolved by Super Admin`,
-              content: `Dear ${adminData.full_name || 'Administrator'},
-
-An escalated request that you previously handled has been resolved by a super administrator.
-
-Request ID: ${selectedRequest.id}
-Title: ${selectedRequest.title}
-Resolution: ${responseText}
-
-This is for your information only. The student has been notified directly.
-
-Regards,
-SRMIST Examination Control System`,
-              attachments: attachmentUrl ? [attachmentUrl] : []
-            };
-            
-            console.log('Sending notification to original admin:', adminData.email);
-            await createEmailNotification(supabase, adminEmailData);
-            console.log('Original admin notification sent');
-          }
-        } catch (notifyError) {
-          console.error('Error notifying original admin:', notifyError);
-          // Don't throw here, as the main resolution was successful
-        }
-      }
+      // Email notifications removed
       
       // Close details modal and refresh
       setSelectedRequest(null);
@@ -519,6 +530,7 @@ SRMIST Examination Control System`,
   
   const handleEscalate = async () => {
     if (!selectedRequest || !responseText.trim()) {
+      showToast('please fill the respond to request', 'warning');
       return;
     }
     
@@ -611,113 +623,7 @@ SRMIST Examination Control System`,
         throw updateError;
       }
       
-      // Get the student's email if not already available in the selectedRequest
-      let studentEmail = selectedRequest.student?.email;
-      let studentName = selectedRequest.student?.full_name;
-      
-      // If student email is not available, fetch it directly
-      if (!studentEmail) {
-        console.log('Student email not found in request data, fetching directly...');
-        const { data: studentData, error: studentError } = await supabase
-          .from('profiles')
-          .select('email, full_name')
-          .eq('id', selectedRequest.student_id)
-          .single();
-          
-        if (studentError) {
-          console.error('Error fetching student data:', studentError);
-        } else if (studentData) {
-          studentEmail = studentData.email;
-          studentName = studentData.full_name;
-          console.log('Found student email:', studentEmail);
-        }
-      }
-      
-      // Create and send email notification to the student
-      console.log('Creating email notification for escalation...');
-      if (studentEmail) {
-        const emailData = {
-          recipientEmail: studentEmail,
-          recipientName: studentName || 'Student',
-          requestId: selectedRequest.id,
-          emailType: 'request_escalated',
-          subject: `Your Request "${selectedRequest.title}" Has Been Escalated`,
-          content: `Dear ${studentName || 'Student'},
-
-Your request "${selectedRequest.title}" has been escalated to senior administrators for further review.
-
-${responseText}
-
-Thank you for your patience.
-
-Regards,
-SRMIST Examination Control Team`,
-          attachments: attachmentUrl ? [attachmentUrl] : []
-        };
-        
-        console.log('Email notification data for student:', emailData);
-        
-        const emailResult = await createEmailNotification(supabase, emailData);
-        console.log('Email notification to student created:', emailResult);
-      } else {
-        console.error('Could not send email notification: Student email not found');
-      }
-      
-      // Fetch all super_admin users to notify them about the escalation
-      console.log('Fetching super_admin users for notification...');
-      const { data: superAdmins, error: superAdminError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .eq('role', 'super_admin');
-        
-      if (superAdminError) {
-        console.error('Error fetching super_admin users:', superAdminError);
-      } else if (superAdmins && superAdmins.length > 0) {
-        console.log(`Found ${superAdmins.length} super_admin users to notify`);
-        
-        // Get department name for the notification
-        let departmentName = selectedRequest.departments?.name || 'Unknown Department';
-        
-        // Send notification to each super_admin
-        for (const admin of superAdmins) {
-          if (admin.email) {
-            const adminEmailData = {
-              recipientEmail: admin.email,
-              recipientName: admin.full_name || 'Administrator',
-              requestId: selectedRequest.id,
-              emailType: 'request_escalated',
-              subject: `Escalated Request: "${selectedRequest.title}" from ${departmentName}`,
-              content: `Dear ${admin.full_name || 'Administrator'},
-
-A request has been escalated to you from ${departmentName}.
-
-Request ID: ${selectedRequest.id}
-Title: ${selectedRequest.title}
-Student: ${studentName || 'Unknown'}
-Department: ${departmentName}
-
-Escalation Notes:
-${responseText}
-
-This request requires your attention and can be viewed in the Super Admin Dashboard.
-
-Regards,
-SRMIST Examination Control System`,
-              attachments: attachmentUrl ? [attachmentUrl] : []
-            };
-            
-            console.log(`Sending notification to super_admin: ${admin.email}`);
-            try {
-              await createEmailNotification(supabase, adminEmailData);
-              console.log(`Notification sent to super_admin: ${admin.email}`);
-            } catch (emailError) {
-              console.error(`Failed to send notification to super_admin ${admin.email}:`, emailError);
-            }
-          }
-        }
-      } else {
-        console.warn('No super_admin users found to notify about the escalation');
-      }
+      // Email notifications removed
       
       // Close details modal and refresh
       setSelectedRequest(null);
@@ -735,6 +641,7 @@ SRMIST Examination Control System`,
   
   const handleTerminate = async () => {
     if (!selectedRequest || !responseText.trim()) {
+      showToast('please fill the respond to request', 'warning');
       return;
     }
     
@@ -829,57 +736,7 @@ SRMIST Examination Control System`,
         throw updateError;
       }
       
-      // Get the student's email if not already available in the selectedRequest
-      let studentEmail = selectedRequest.student?.email;
-      let studentName = selectedRequest.student?.full_name;
-      
-      // If student email is not available, fetch it directly
-      if (!studentEmail) {
-        console.log('Student email not found in request data, fetching directly...');
-        const { data: studentData, error: studentError } = await supabase
-          .from('profiles')
-          .select('email, full_name')
-          .eq('id', selectedRequest.student_id)
-          .single();
-          
-        if (studentError) {
-          console.error('Error fetching student data:', studentError);
-        } else if (studentData) {
-          studentEmail = studentData.email;
-          studentName = studentData.full_name;
-          console.log('Found student email:', studentEmail);
-        }
-      }
-      
-      // Create and send email notification
-      console.log('Creating email notification for termination...');
-      if (studentEmail) {
-        const emailData = {
-          recipientEmail: studentEmail,
-          recipientName: studentName || 'Student',
-        requestId: selectedRequest.id,
-        emailType: 'request_terminated',
-        subject: `Your Request "${selectedRequest.title}" Has Been Closed`,
-          content: `Dear ${studentName || 'Student'},
-
-Your request "${selectedRequest.title}" has been closed. Here's the reason:
-
-${responseText}
-
-Thank you for your understanding.
-
-Regards,
-SRMIST Examination Control Team`,
-        attachments: attachmentUrl ? [attachmentUrl] : []
-        };
-        
-        console.log('Email notification data:', emailData);
-        
-        const emailResult = await createEmailNotification(supabase, emailData);
-        console.log('Email notification created:', emailResult);
-      } else {
-        console.error('Could not send email notification: Student email not found');
-      }
+      // Email notifications removed
       
       // Close details modal and refresh
       setSelectedRequest(null);
@@ -908,67 +765,7 @@ SRMIST Examination Control Team`,
     setSearchTerm(e.target.value);
   };
 
-  const handleTestEmail = async () => {
-    setTestingEmail(true);
-    setEmailTestMessage('');
-
-    try {
-      // First check API connection
-      const connectionTest = await checkEmailApiConnection();
-      console.log('API connection test result:', connectionTest);
-      
-      if (!connectionTest.success && !connectionTest.simulated) {
-        setEmailTestMessage(`API connection failed: ${connectionTest.message}`);
-        setEmailTestSuccess(false);
-        setTestingEmail(false);
-        return;
-      }
-      
-      // If connection was simulated (likely due to CORS), show a warning but continue
-      if (connectionTest.simulated) {
-        console.log('API connection was simulated due to CORS, proceeding with test email');
-      }
-
-      // Get allowed email types for debugging
-      try {
-        const emailTypes = await getEmailTypeConstraints(supabase);
-        console.log('Allowed email types:', emailTypes);
-      } catch (constraintError) {
-        console.warn('Could not fetch email type constraints:', constraintError);
-      }
-
-      const result = await sendTestEmail(
-        supabase, 
-        session?.user?.email || 'test@example.com', 
-        profile?.full_name || 'Test User'
-      );
-      
-      console.log('Test email result:', result);
-      
-      if (result.success) {
-        if (result.simulatedOnly || result.message?.includes('mock server')) {
-          // Show a message for simulated/mock emails
-          setEmailTestMessage(
-            `${result.message}. Email saved to database with ID ${result.emailId}. ` +
-            `In production, configure the server-side email sending function for actual delivery.`
-          );
-          setEmailTestSuccess(true);
-        } else {
-          setEmailTestMessage(`Test email sent successfully! Please check your inbox.`);
-          setEmailTestSuccess(true);
-        }
-      } else {
-        setEmailTestMessage(`Failed to send test email: ${result.message}`);
-        setEmailTestSuccess(false);
-      }
-    } catch (error) {
-      console.error('Error testing email system:', error);
-      setEmailTestMessage(`Error: ${error.message}`);
-      setEmailTestSuccess(false);
-    } finally {
-      setTestingEmail(false);
-    }
-  };
+  // Email test and processing functions removed
 
   const handlePriorityChange = async (newPriority, requestId) => {
     const { data: priorityChangeData, error: priorityChangeError } = await supabase
@@ -1005,16 +802,7 @@ SRMIST Examination Control Team`,
     }
   };
 
-  const handleProcessEmailQueue = async () => {
-    try {
-      console.log('Manually processing email queue...');
-      await processEmailQueue(supabase);
-      alert('Email queue processed successfully. Check console for details.');
-    } catch (error) {
-      console.error('Error processing email queue:', error);
-      alert('Error processing email queue: ' + error.message);
-    }
-  };
+  // Email queue processing removed
 
   if (loading && !profile) {
     return (
@@ -1052,46 +840,77 @@ SRMIST Examination Control Team`,
   return (
     <div className="page-container">
       <div className="dashboard-container fade-in">
+        {toastMessage && (
+          <div className={`mb-4 p-3 rounded-md border ${toastType === 'warning' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : toastType === 'error' ? 'bg-red-100 border-red-300 text-red-800' : toastType === 'success' ? 'bg-green-100 border-green-300 text-green-800' : 'bg-blue-100 border-blue-300 text-blue-800'}`}>
+            {toastMessage}
+          </div>
+        )}
         <div className="card-header">
           <div>
             <h1 className="text-2xl font-bold text-gray-800 mb-1">
-              {profile?.role === 'super_admin' ? 'SuperAdmin Dashboard' : 'Admin Dashboard'}
+              {profile?.role === 'super_admin' ? 'SuperAdmin Dashboard — Controller of Examinations' : 'Admin Dashboard — Controller of Examinations'}
             </h1>
             <div className="text-gray-600">
               {profile?.role === 'super_admin' 
-                ? 'Manage escalated requests across all departments' 
+                ? 'Manage all student requests across departments'
                 : `Managing ${profile?.departments?.name || 'Department'} requests`}
             </div>
           </div>
           <div className="mt-4 md:mt-0 flex flex-col md:flex-row gap-2">
-            <button
-              onClick={handleTestEmail}
-              disabled={testingEmail}
-              className="secondary-button flex items-center gap-2"
-            >
-              {testingEmail ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-white border-opacity-50 border-t-blue-600 rounded-full"></div>
-                  Testing...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                  </svg>
-                  Test Email
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleProcessEmailQueue}
-              className="secondary-button flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-              </svg>
-              Process Email Queue
-            </button>
+            {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
+              <button
+                onClick={async () => {
+                  if (deletingResolved) return;
+                  const confirm = window.confirm('Delete all resolved requests' + (profile?.role === 'admin' ? ' in your department' : ' (all departments)') + '? This cannot be undone.');
+                  if (!confirm) return;
+                  try {
+                    setDeletingResolved(true);
+                    // Fetch resolved request ids within scope
+                    let q = supabase
+                      .from('examination_requests')
+                      .select('id')
+                      .eq('status', 'resolved');
+                    if (profile?.role === 'admin') {
+                      q = q.eq('department_id', profile.department_id);
+                    }
+                    const { data: resolvedRows, error: fetchErr } = await q;
+                    if (fetchErr) throw fetchErr;
+                    const ids = (resolvedRows || []).map(r => r.id);
+                    if (ids.length === 0) {
+                      showToast('No resolved requests to delete.', 'info');
+                      return;
+                    }
+                    // Delete related responses first
+                    const { error: respDelErr } = await supabase
+                      .from('request_responses')
+                      .delete()
+                      .in('request_id', ids);
+                    if (respDelErr) throw respDelErr;
+                    // Delete the requests
+                    const { error: reqDelErr } = await supabase
+                      .from('examination_requests')
+                      .delete()
+                      .in('id', ids);
+                    if (reqDelErr) throw reqDelErr;
+                    showToast(`Deleted ${ids.length} resolved request(s).`, 'success');
+                    // Refresh current tab
+                    if (profile) await fetchRequests(profile, tab);
+                  } catch (err) {
+                    console.error('Delete resolved failed:', err);
+                    showToast('Failed to delete resolved requests. ' + (err.message || ''), 'error');
+                  } finally {
+                    setDeletingResolved(false);
+                  }
+                }}
+                className={`danger-button flex items-center gap-2 ${deletingResolved ? 'opacity-70 cursor-not-allowed' : ''}`}
+                disabled={deletingResolved}
+                title="Delete all resolved requests"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h10"/></svg>
+                {deletingResolved ? 'Deleting…' : 'Delete All Resolved'}
+              </button>
+            )}
+            {/* Email test and queue buttons removed */}
             <button
               onClick={() => supabase.auth.signOut()}
               className="danger-button flex items-center gap-2"
@@ -1104,51 +923,118 @@ SRMIST Examination Control Team`,
           </div>
         </div>
         
-        {emailTestMessage && (
-          <div className={`mb-4 p-4 rounded-lg ${emailTestSuccess ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-            <div className="flex items-start">
-              <div className="flex-shrink-0">
-                {emailTestSuccess ? (
-                  <svg className="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </div>
-              <div className="ml-3">
-                <h3 className={`text-sm font-medium ${emailTestSuccess ? 'text-green-800' : 'text-red-800'}`}>
-                  Email Test {emailTestSuccess ? 'Successful' : 'Failed'}
-                </h3>
-                <div className={`mt-2 text-sm ${emailTestSuccess ? 'text-green-700' : 'text-red-700'}`}>
-                  <p>{emailTestMessage}</p>
-                </div>
-                {!emailTestSuccess && (
-                  <div className="mt-4">
-                    <div className="-mx-2 -my-1.5 flex">
-                      <button
-                        onClick={() => {
-                          setEmailTestMessage('');
-                          setEmailTestSuccess(true);
-                        }}
-                        className="px-2 py-1.5 rounded-md text-sm font-medium text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Email test message UI removed */}
         
         {/* Tab navigation */}
         <div className="flex overflow-x-auto bg-white rounded-lg shadow mb-6">
-          <button 
-            onClick={() => changeTab('pending')} 
+          {/* For super_admin: Home (first), Escalated, Resolved, Terminated, Pending, All Requests (last) */}
+          {profile?.role === 'super_admin' ? (
+            <>
+              <button 
+                onClick={() => changeTab('home')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'home' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001 1h6a1 1 0 001-1V10m-9 11V9m0 0l-2 2m2-2l2 2" />
+                  </svg>
+                  Home
+                </div>
+              </button>
+              <button 
+                onClick={() => changeTab('all')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'all' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h18M3 12h18M3 17h18" />
+                  </svg>
+                  All Requests
+                  {tab === 'all' && filteredRequests.length > 0 && (
+                    <span className="ml-2 bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                      {filteredRequests.length}
+                    </span>
+                  )}
+                </div>
+              </button>
+              <button 
+                onClick={() => changeTab('escalated')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'escalated' 
+                    ? 'border-orange-600 text-orange-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                  </svg>
+                  Escalated Pending
+                  {tab === 'escalated' && filteredRequests.length > 0 && (
+                    <span className="ml-2 bg-orange-100 text-orange-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                      {filteredRequests.length}
+                    </span>
+                  )}
+                </div>
+              </button>
+              <button 
+                onClick={() => changeTab('resolved')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'resolved' 
+                    ? 'border-green-600 text-green-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                  Resolved
+                </div>
+              </button>
+              <button 
+                onClick={() => changeTab('terminated')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'terminated' 
+                    ? 'border-red-600 text-red-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                  Terminated
+                </div>
+              </button>
+              <button 
+                onClick={() => changeTab('pending')} 
+                className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
+                  tab === 'pending' 
+                    ? 'border-blue-600 text-blue-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  Pending
+                </div>
+              </button>
+            </>
+          ) : (
+            <>
+              <button 
+                onClick={() => changeTab('pending')} 
             className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
               tab === 'pending' 
                 ? 'border-blue-600 text-blue-600' 
@@ -1159,7 +1045,7 @@ SRMIST Examination Control Team`,
               <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
-              {profile?.role === 'super_admin' ? 'Escalated Requests' : 'Pending'}
+                  Pending
               {tab === 'pending' && filteredRequests.length > 0 && (
                 <span className="ml-2 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
                   {filteredRequests.length}
@@ -1201,7 +1087,7 @@ SRMIST Examination Control Team`,
             </div>
           </button>
           )}
-          
+          {profile?.role !== 'super_admin' && (
           <button 
             onClick={() => changeTab('terminated')} 
             className={`px-4 py-3 text-sm font-medium flex-shrink-0 border-b-2 ${
@@ -1214,12 +1100,122 @@ SRMIST Examination Control Team`,
               <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
               </svg>
-              {profile?.role === 'super_admin' ? 'Terminated by Super Admin' : 'Terminated'}
+              Terminated
             </div>
           </button>
+          )}
+          </>
+          )}
+          
         </div>
         
-        {/* Search input */}
+        {/* SuperAdmin Home dashboard */}
+        {profile?.role === 'super_admin' && tab === 'home' ? (
+          <div className="space-y-6">
+            {/* Stat cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="glass-card p-4">
+                <div className="text-sm text-gray-500">Total Requests</div>
+                <div className="text-2xl font-bold">{homeStats.totalRequests}</div>
+              </div>
+              <div className="glass-card p-4">
+                <div className="text-sm text-gray-500">Students</div>
+                <div className="text-2xl font-bold">{homeStats.totalStudents}</div>
+              </div>
+              <div className="glass-card p-4">
+                <div className="text-sm text-gray-500">Admins</div>
+                <div className="text-2xl font-bold">{homeStats.totalAdmins}</div>
+              </div>
+              <div className="glass-card p-4">
+                <div className="text-sm text-gray-500">Super Admins</div>
+                <div className="text-2xl font-bold">{homeStats.totalSuperAdmins}</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Pie chart */}
+              <div className="glass-card p-6 flex flex-col items-center justify-center h-full">
+                <div className="w-full flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Requests by Status</h3>
+                  <div className="text-sm text-gray-500">Total: {pieStats.total}</div>
+                </div>
+                <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
+                  <div className="md:col-span-1">
+                    <label className="block text-xs text-gray-500 mb-1">From</label>
+                    <input type="date" value={pieFrom} onChange={(e)=>{ setPieFrom(e.target.value); updatePieStats(e.target.value, pieTo); }} className="form-input py-2" />
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="block text-xs text-gray-500 mb-1">To</label>
+                    <input type="date" value={pieTo} onChange={(e)=>{ setPieTo(e.target.value); updatePieStats(pieFrom, e.target.value); }} className="form-input py-2" />
+                  </div>
+                  <div className="md:col-span-1 flex items-end">
+                    <button onClick={()=>{ setPieFrom(''); setPieTo(''); updatePieStats('', ''); }} className="secondary-button w-full">Reset</button>
+                  </div>
+                </div>
+                {(() => {
+                  const total = Math.max(1, pieStats.total);
+                  const seg = pieStats.byStatus;
+                  const pct = {
+                    pending: (seg.pending / total) * 100,
+                    escalated: (seg.escalated / total) * 100,
+                    resolved: (seg.resolved / total) * 100,
+                    terminated: (seg.terminated / total) * 100,
+                  };
+                  const bg = `conic-gradient(
+                    #3b82f6 0% ${pct.pending}%,
+                    #f59e0b ${pct.pending}% ${pct.pending + pct.escalated}%,
+                    #10b981 ${pct.pending + pct.escalated}% ${pct.pending + pct.escalated + pct.resolved}%,
+                    #ef4444 ${pct.pending + pct.escalated + pct.resolved}% 100%
+                  )`;
+                  return (
+                    <div className="w-full flex flex-col items-center">
+                      <div className="w-48 h-48 rounded-full" style={{ background: bg }}></div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{background:'#3b82f6'}}></span>Pending ({seg.pending})</div>
+                        <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{background:'#f59e0b'}}></span>Escalated ({seg.escalated})</div>
+                        <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{background:'#10b981'}}></span>Resolved ({seg.resolved})</div>
+                        <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{background:'#ef4444'}}></span>Terminated ({seg.terminated})</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Organization Overview (date-range aware) */}
+              <div className="glass-card p-6 lg:col-span-2 h-full flex flex-col">
+                <h3 className="text-lg font-semibold mb-4">Organization Overview</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 sm:grid-rows-2 auto-rows-fr gap-4 h-full">
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Departments (in range)</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.departments}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Branches (in range)</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.branches}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Active Pending</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.byStatus.pending}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Escalated Pending</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.byStatus.escalated}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Resolved</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.byStatus.resolved}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 h-full flex flex-col justify-center">
+                    <div className="text-sm text-gray-500">Terminated</div>
+                    <div className="text-2xl font-bold">{overviewRangeStats.byStatus.terminated}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+        <>
+        {/* Search input (hidden on Home) */}
         <div className="mb-6">
           <div className="relative">
             <input
@@ -1236,7 +1232,7 @@ SRMIST Examination Control Team`,
             </div>
           </div>
         </div>
-        
+
         {loadingRequests ? (
           <div className="text-center py-10">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-opacity-50 border-t-blue-600"></div>
@@ -1261,7 +1257,8 @@ SRMIST Examination Control Team`,
                   <th className="data-table-header">Request ID</th>
                   <th className="data-table-header">Title</th>
                   <th className="data-table-header">Student</th>
-                  <th className="data-table-header">Department</th>
+                   <th className="data-table-header">Department</th>
+                   <th className="data-table-header">Branch</th>
                   <th className="data-table-header">Date</th>
                   <th className="data-table-header">Status</th>
                   <th className="data-table-header">Actions</th>
@@ -1271,9 +1268,7 @@ SRMIST Examination Control Team`,
                 {filteredRequests.map((request) => (
                   <tr key={request.id} className="hover:bg-gray-50 transition-colors duration-200">
                     <td className="data-table-cell">
-                      <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                        {request.id}
-                      </span>
+                      <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{request.id}</span>
                     </td>
                     <td className="data-table-cell">
                       <div className="text-sm font-medium text-gray-900">{request.title}</div>
@@ -1285,6 +1280,9 @@ SRMIST Examination Control Team`,
                     </td>
                     <td className="data-table-cell">
                       <div className="text-sm">{request.departments?.name || 'Unknown'}</div>
+                    </td>
+                    <td className="data-table-cell">
+                      <div className="text-sm">{request.branches?.branch_name || '-'}</div>
                     </td>
                     <td className="data-table-cell">
                       <div className="text-sm text-gray-500">
@@ -1308,6 +1306,8 @@ SRMIST Examination Control Team`,
             </table>
           </div>
         )}
+        </>
+        )}
       </div>
       
       {selectedRequest && (
@@ -1326,6 +1326,12 @@ SRMIST Examination Control Team`,
               </button>
             </div>
             
+            {toastMessage && (
+              <div className={`mb-4 p-3 rounded-md border ${toastType === 'warning' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : toastType === 'error' ? 'bg-red-100 border-red-300 text-red-800' : toastType === 'success' ? 'bg-green-100 border-green-300 text-green-800' : 'bg-blue-100 border-blue-300 text-blue-800'}`}>
+                {toastMessage}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div className="glass-card p-4">
                 <h4 className="text-sm font-medium text-gray-500 mb-2">Request Information</h4>
@@ -1391,6 +1397,10 @@ SRMIST Examination Control Team`,
                   <div>
                     <span className="block text-xs text-gray-500">Department</span>
                     <span className="block text-sm">{selectedRequest.departments?.name || 'Unknown'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-gray-500">Branch</span>
+                    <span className="block text-sm">{selectedRequest.branches?.branch_name || '-'}</span>
                   </div>
                 </div>
               </div>
@@ -1528,7 +1538,7 @@ SRMIST Examination Control Team`,
                 <div className="flex flex-wrap gap-3">
                   <button
                     onClick={handleResolve}
-                    disabled={submittingResponse || !responseText.trim()}
+                    disabled={submittingResponse}
                     className="success-button flex items-center gap-2"
                   >
                     {submittingResponse ? (
@@ -1553,7 +1563,7 @@ SRMIST Examination Control Team`,
                   {profile?.role === 'admin' && (
                     <button
                       onClick={handleEscalate}
-                      disabled={submittingResponse || !responseText.trim()}
+                      disabled={submittingResponse}
                       className="primary-button flex items-center gap-2"
                     >
                       {submittingResponse ? (
@@ -1577,7 +1587,7 @@ SRMIST Examination Control Team`,
                   
                   <button
                     onClick={handleTerminate}
-                    disabled={submittingResponse || !responseText.trim()}
+                    disabled={submittingResponse}
                     className="danger-button flex items-center gap-2"
                   >
                     {submittingResponse ? (

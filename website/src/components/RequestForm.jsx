@@ -1,6 +1,5 @@
 import { useState, useContext, useEffect } from 'react';
 import { AuthContext } from './AuthProvider';
-import { createEmailNotification } from '../utils/emailService';
 
 const REQUEST_TYPES = [
   { value: 'exam_issue', label: 'Exam Issue' },
@@ -72,6 +71,7 @@ function RequestForm({ onRequestSubmitted }) {
   const [departments, setDepartments] = useState([]);
   const [department, setDepartment] = useState('');
   const [degree, setDegree] = useState('');
+  const [branch, setBranch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -79,56 +79,123 @@ function RequestForm({ onRequestSubmitted }) {
   const [filePreview, setFilePreview] = useState(null);
   const [formTouched, setFormTouched] = useState(false);
   const [characterCount, setCharacterCount] = useState(0);
+  const [degrees, setDegrees] = useState([]);
+  const [filteredDegrees, setFilteredDegrees] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [filteredBranches, setFilteredBranches] = useState([]);
+  const [lastRequestId, setLastRequestId] = useState('');
 
   useEffect(() => {
     if (!session?.user) return;
 
-    const fetchUserProfile = async () => {
+    // Fetch departments and degrees
+    const fetchData = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch user profile
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .single();
 
-        if (error) {
-          console.error('Error fetching profile:', error);
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
           return;
         }
 
-        setProfile(data);
-        if (data.department_id) {
-          setDepartment(data.department_id);
+        setProfile(profileData);
+        if (profileData.department_id) {
+          setDepartment(profileData.department_id);
         }
-        if (data.degree) {
-          setDegree(data.degree);
+        if (profileData.branch_id) {
+          setBranch(profileData.branch_id);
         }
-      } catch (err) {
-        console.error('Unexpected error fetching profile:', err);
-      }
-    };
 
-    const fetchDepartments = async () => {
-      try {
-        const { data, error } = await supabase
+        // Fetch departments
+        const { data: deptData, error: deptError } = await supabase
           .from('departments')
           .select('*')
           .eq('is_active', true);
 
-        if (error) {
-          console.error('Error fetching departments:', error);
+        if (deptError) {
+          console.error('Error fetching departments:', deptError);
           return;
         }
 
-        setDepartments(data);
+        setDepartments(deptData);
+
+        // Fetch degrees with department info
+        const { data: degreeData, error: degreeError } = await supabase
+          .from('degrees')
+          .select('*, departments:department_id(*)');
+
+        if (degreeError) {
+          console.error('Error fetching degrees:', degreeError);
+          return;
+        }
+
+        setDegrees(degreeData || []);
+        // If profile has a degree_id, preselect it
+        if (profileData?.degree_id) {
+          setDegree(profileData.degree_id);
+        }
+
+        // Fetch branches
+        const { data: branchesData, error: branchesError } = await supabase
+          .from('branches')
+          .select('*');
+        if (branchesError) {
+          console.error('Error fetching branches:', branchesError);
+        } else {
+          setBranches(branchesData || []);
+          // If profile has a branch but department mismatch, align department to branch's department
+          if (profileData?.branch_id && Array.isArray(branchesData)) {
+            const br = branchesData.find(b => b.id === profileData.branch_id);
+            if (br) {
+              if (!profileData.department_id || profileData.department_id !== br.department_id) {
+                setDepartment(br.department_id);
+              }
+              setBranch(br.id);
+            }
+          }
+        }
       } catch (err) {
-        console.error('Unexpected error fetching departments:', err);
+        console.error('Unexpected error:', err);
       }
     };
 
-    fetchUserProfile();
-    fetchDepartments();
+    fetchData();
   }, [session, supabase]);
+
+  // Filter degrees and branches when department changes
+  useEffect(() => {
+    if (department) {
+      const filtered = degrees.filter(deg => deg.department_id === parseInt(department));
+      setFilteredDegrees(filtered);
+      // Reset degree selection if not valid for new department
+      if (!filtered.find(deg => deg.id === degree)) {
+        setDegree('');
+      }
+      // If there's exactly one degree for this department, auto-select it
+      if (filtered.length === 1) {
+        setDegree(filtered[0].id);
+      }
+
+      const fb = branches.filter(b => b.department_id === parseInt(department));
+      setFilteredBranches(fb);
+      if (!fb.find(b => b.id === parseInt(branch))) {
+        setBranch('');
+      }
+      if (fb.length === 1) {
+        setBranch(fb[0].id);
+      }
+    } else {
+      setFilteredDegrees([]);
+      setDegree('');
+      setFilteredBranches([]);
+      setBranch('');
+    }
+  }, [department, degrees, branches]);
 
   useEffect(() => {
     // Create preview URL for file if selected
@@ -175,6 +242,9 @@ function RequestForm({ onRequestSubmitted }) {
       if (!department) {
         throw new Error('Please select a department');
       }
+      if (!branch) {
+        throw new Error('Please select a branch');
+      }
 
       let attachmentUrl = null;
 
@@ -212,6 +282,11 @@ function RequestForm({ onRequestSubmitted }) {
           departmentName = selectedDept.name;
         }
       }
+      let branchName = '';
+      if (filteredBranches.length > 0) {
+        const selectedBr = filteredBranches.find(b => b.id === parseInt(branch));
+        if (selectedBr) branchName = selectedBr.branch_name;
+      }
 
       // Create request record
       const { data: requestData, error: requestError } = await supabase
@@ -222,77 +297,45 @@ function RequestForm({ onRequestSubmitted }) {
           description,
           request_type: requestType,
           priority,
-            degree,
+          degree,
           department_id: department,
+          branch_id: branch,
           attachments: attachmentUrl ? [attachmentUrl] : [],
           status: 'pending'
         })
-        .select('id')
+        .select('id, created_at')
         .single();
 
       if (requestError) {
         throw requestError;
       }
 
+      // Use Supabase-generated ID directly for reference
+      setLastRequestId(requestData.id);
+
       // Get the request type label for the email
       const requestTypeLabel = REQUEST_TYPES.find(type => type.value === requestType)?.label || requestType;
   const priorityLabel = PRIORITY_LEVELS.find(level => level.value === priority)?.label || priority;
-  const degreeLabel = DEGREE_OPTIONS.find(d => d.value === degree)?.label || degree;
+  const degreeObj = degrees.find(d => d.id === parseInt(degree));
+  const degreeLabel = degreeObj ? `${degreeObj.name} (${degreeObj.code})` : degree;
 
-      // Send confirmation email to the student
-      if (profile && profile.email) {
-        try {
-          const emailData = {
-            recipientEmail: profile.email,
-            recipientName: profile.full_name || profile.email,
-            requestId: requestData.id,
-            emailType: 'request_created',
-            subject: `Request Confirmation: ${title}`,
-            content: `Dear ${profile.full_name || 'Student'},
-
-Your request has been successfully submitted to the SRM Examination Control Portal.
-
-Request Details:
-- Title: ${title}
-- Type: ${requestTypeLabel}
-- Priority: ${priorityLabel}
-- Degree: ${degreeLabel}
-- Department: ${departmentName}
-
-We have received your request and it is currently under review. You will be notified via email when there are updates on your request.
-
-Thank you for your patience.
-
-Regards,
-SRMIST Examination Control Team`,
-            attachments: attachmentUrl ? [attachmentUrl] : []
-          };
-
-          await createEmailNotification(supabase, emailData);
-          console.log('Confirmation email sent to student');
-          setSuccess(true);
-          setTimeout(() => {
-            if (onRequestSubmitted) {
-              onRequestSubmitted();
-            }
-            window.location.reload(); // Refresh the page to clear form state
-          }, 5000);
-        } catch (emailError) {
-          console.error('Failed to send confirmation email:', emailError);
-          // Don't throw error here, as the request was successfully created
-        }
-      } else {
-        setSuccess(true);
-        setTimeout(() => {
-          if (onRequestSubmitted) {
-            onRequestSubmitted();
-          }
-          window.location.reload(); // Refresh the page to clear form state
-        }, 5000);
-      }
+      // Success flow (email notifications removed)
+      setSuccess(true);
+      // clear form
+      setTitle('');
+      setDescription('');
+      setRequestType('');
+      setPriority('medium');
+      setFile(null);
+      setFilePreview(null);
+      setCharacterCount(0);
+      if (onRequestSubmitted) onRequestSubmitted();
+      setTimeout(() => setSuccess(false), 4000);
     } catch (err) {
       console.error('Error submitting request:', err);
       setError(err.message);
+      // auto-dismiss error after 5s
+      setTimeout(() => setError(null), 5000);
     } finally {
       setLoading(false);
     }
@@ -300,26 +343,23 @@ SRMIST Examination Control Team`,
 
   return (
     <div>
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg border border-red-200 flex items-center gap-2 animate-fadeIn">
-          <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <span>{error}</span>
-        </div>
-      )}
-      
-      {success && (
-        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg border border-green-200 flex items-center gap-2 animate-fadeIn">
-          <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <div>
-            <p className="font-medium">Request submitted successfully!</p>
-            {profile && profile.email && (
-              <p className="text-sm mt-1">A confirmation email has been sent to {profile.email}</p>
-            )}
-          </div>
+      {(error || success) && (
+        <div className="fixed top-4 right-4 z-50 space-y-2">
+          {error && (
+            <div className="px-4 py-3 bg-red-600 text-white rounded-lg shadow-lg flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M5.07 19h13.86A2 2 0 0021 17.07L13.93 3.52a2 2 0 00-3.86 0L3 17.07A2 2 0 005.07 19z"/></svg>
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
+          {success && (
+            <div className="px-4 py-3 bg-green-600 text-white rounded-lg shadow-lg">
+              <div className="font-medium">Request submitted successfully!</div>
+              {lastRequestId && (
+                <div className="text-xs mt-1">Your Request ID: <span className="font-mono bg-white text-green-800 px-1 py-0.5 rounded">{lastRequestId}</span></div>
+              )}
+              {/* Email confirmation message removed */}
+            </div>
+          )}
         </div>
       )}
       
@@ -410,12 +450,45 @@ SRMIST Examination Control Team`,
             onChange={(e) => setDegree(e.target.value)}
             className="form-select"
             required
+            disabled={!department}
           >
-            <option value="">Select Degree</option>
-            {DEGREE_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option value="">Select Your Degree</option>
+            {filteredDegrees.map((deg) => (
+              <option key={deg.id} value={deg.id}>
+                {deg.name} ({deg.code})
+              </option>
             ))}
           </select>
+          {!department && (
+            <p className="text-xs text-gray-500 mt-1">Please select a department first</p>
+          )}
+          {department && filteredDegrees.length === 0 && (
+            <p className="text-xs text-gray-500 mt-1">No degrees available for selected department</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+          <select
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            className="form-select"
+            required
+            disabled={!department}
+          >
+            <option value="">Select Your Branch</option>
+            {filteredBranches.map((br) => (
+              <option key={br.id} value={br.id}>
+                {br.branch_name}
+              </option>
+            ))}
+          </select>
+          {!department && (
+            <p className="text-xs text-gray-500 mt-1">Please select a department first</p>
+          )}
+          {department && filteredBranches.length === 0 && (
+            <p className="text-xs text-gray-500 mt-1">No branches available for selected department</p>
+          )}
         </div>
         
         <div>

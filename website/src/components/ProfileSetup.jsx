@@ -12,13 +12,16 @@ function ProfileSetup() {
   const [department, setDepartment] = useState('');
   const [departments, setDepartments] = useState([]);
   const [degrees, setDegrees] = useState([]);
+  const [filteredDegrees, setFilteredDegrees] = useState([]);
   const [degree, setDegree] = useState('');
+  // Branches
+  const [branches, setBranches] = useState([]);
+  const [filteredBranches, setFilteredBranches] = useState([]);
+  const [branch, setBranch] = useState('');
   const [email, setEmail] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
   
-  // ...existing code...
-
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -57,18 +60,18 @@ function ProfileSetup() {
       }
     };
 
-    // Fetch degrees
+    // Fetch all degrees
     const fetchDegrees = async () => {
       try {
         const { data, error } = await supabase
           .from('degrees')
-          .select('*');
+          .select('*, departments:department_id(*)');
 
         if (error) {
           console.error('Error fetching degrees:', error);
           setError('Failed to load degrees. Please try again.');
         } else {
-          setDegrees(data);
+          setDegrees(data || []);
         }
       } catch (err) {
         console.error('Unexpected error:', err);
@@ -76,9 +79,51 @@ function ProfileSetup() {
       }
     };
 
+    // Fetch all branches
+    const fetchBranches = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('branches')
+          .select('*');
+
+        if (error) {
+          console.error('Error fetching branches:', error);
+          // Don't set global error; branches are additive
+        } else {
+          setBranches(data || []);
+        }
+      } catch (err) {
+        console.error('Unexpected error (branches):', err);
+      }
+    };
+
     fetchDepartments();
     fetchDegrees();
+    fetchBranches();
   }, [session, supabase, navigate]);
+
+  // Filter degrees when department changes
+  useEffect(() => {
+    if (department) {
+      const filtered = degrees.filter(deg => deg.department_id === parseInt(department));
+      setFilteredDegrees(filtered);
+      // Reset degree selection if current selection is not valid for new department
+      if (!filtered.find(deg => deg.id === degree)) {
+        setDegree('');
+      }
+      // Filter branches for selected department
+      const fb = branches.filter(b => b.department_id === parseInt(department));
+      setFilteredBranches(fb);
+      if (!fb.find(b => b.id === parseInt(branch))) {
+        setBranch('');
+      }
+    } else {
+      setFilteredDegrees([]);
+      setDegree('');
+      setFilteredBranches([]);
+      setBranch('');
+    }
+  }, [department, degrees, branches]);
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
@@ -107,7 +152,7 @@ function ProfileSetup() {
       if (avatarFile) {
         const fileExt = avatarFile.name.split('.').pop();
         const fileName = `${session.user.id}-${Date.now()}.${fileExt}`;
-        
+
         const { error: uploadError } = await supabase.storage
           .from('profile-avatars')
           .upload(fileName, avatarFile);
@@ -134,6 +179,7 @@ function ProfileSetup() {
           role: 'student', // Default role for new users
           department_id: department,
           degree_id: degree,
+          branch_id: branch || null,
           student_id: studentId,
           phone: phone,
           avatar_url: avatar_url,
@@ -267,19 +313,50 @@ function ProfileSetup() {
               onChange={(e) => setDegree(e.target.value)}
               className="form-select"
               required
+              disabled={!department} // Disable if no department is selected
             >
               <option value="">Select Your Degree</option>
-              {degrees.map((deg) => (
+              {filteredDegrees.map((deg) => (
                 <option key={deg.id} value={deg.id}>
-                  {deg.name}
+                  {deg.name} ({deg.code})
                 </option>
               ))}
             </select>
+            {!department && (
+              <p className="text-xs text-gray-500 mt-1">Please select a department first</p>
+            )}
+            {department && filteredDegrees.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">No degrees available for selected department</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+            <select
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              className="form-select"
+              required
+              disabled={!department}
+            >
+              <option value="">Select Your Branch</option>
+              {filteredBranches.map((br) => (
+                <option key={br.id} value={br.id}>
+                  {br.branch_name}
+                </option>
+              ))}
+            </select>
+            {!department && (
+              <p className="text-xs text-gray-500 mt-1">Please select a department first</p>
+            )}
+            {department && filteredBranches.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">No branches available for selected department</p>
+            )}
           </div>
           
           <button
             type="submit"
-            disabled={loading || !department || !degree}
+            disabled={loading || !department || !degree || !branch}
             className={`w-full primary-button py-3 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             {loading ? (
