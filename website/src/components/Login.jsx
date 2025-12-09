@@ -73,7 +73,8 @@ function Login() {
             <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-600 to-blue-800 rounded-full flex items-center justify-center text-white text-3xl font-bold mb-6 shadow-lg">
               SRM
             </div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Examination Control Portal</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Center of Examinations</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Examination Grievance Redressal Portal</h1>
             <p className="text-gray-600">Access your examination support services</p>
             <div className="h-1 w-16 bg-gradient-to-r from-blue-500 to-blue-700 mx-auto mt-4 rounded-full"></div>
           </div>

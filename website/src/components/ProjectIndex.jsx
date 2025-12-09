@@ -9,7 +9,7 @@ function ProjectIndex() {
         <header className="bg-white rounded-xl shadow-lg p-8 mb-8">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-blue-800">SRMIST Examination Control Portal</h1>
+              <h1 className="text-3xl md:text-4xl font-bold text-blue-800">SRMIST Examination Grievance Redressal Portal</h1>
               <p className="text-gray-600 mt-2 text-lg">A comprehensive system for managing examination-related requests</p>
             </div>
             <img src="/favicon.ico" alt="SRM Logo" className="w-20 h-20 mt-4 md:mt-0" />
@@ -32,7 +32,7 @@ function ProjectIndex() {
         <section className="bg-white rounded-xl shadow-lg p-8 mb-8">
           <h2 className="text-2xl font-bold text-blue-800 mb-4">System Overview</h2>
           <p className="text-gray-700 mb-6">
-            The SRMIST Examination Control Portal is a comprehensive platform designed to streamline the process of submitting, tracking, and resolving examination-related requests. The system supports multiple user roles including students, department administrators, and super administrators.
+            The SRMIST Examination Grievance Redressal Portal is a comprehensive platform designed to streamline the process of submitting, tracking, and resolving examination-related requests. The system supports multiple user roles including students, department administrators, and super administrators.
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -241,7 +241,7 @@ function ProjectIndex() {
         
         {/* Footer */}
         <footer className="mt-12 text-center text-gray-600">
-          <p>© {new Date().getFullYear()} SRMIST Examination Control Portal. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} SRMIST Examination Grievance Redressal Portal. All rights reserved.</p>
         </footer>
       </div>
     </div>

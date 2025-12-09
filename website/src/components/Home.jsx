@@ -204,7 +204,7 @@ function Home() {
             </div>
             <div className="ml-3">
               <p className="text-sm text-blue-700">
-                Welcome to the SRMIST Examination Control Portal. Here you can submit and track your examination-related requests.
+                Welcome to the SRMIST Examination Grievance Redressal Portal. Here you can submit and track your examination-related requests.
               </p>
             </div>
           </div>
