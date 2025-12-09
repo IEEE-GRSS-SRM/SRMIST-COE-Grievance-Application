@@ -1254,19 +1254,27 @@ function AdminDashboard() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="data-table-header">Actions</th>
                   <th className="data-table-header">Request ID</th>
                   <th className="data-table-header">Title</th>
                   <th className="data-table-header">Student</th>
-                   <th className="data-table-header">Department</th>
-                   <th className="data-table-header">Branch</th>
+                  <th className="data-table-header">Department</th>
+                  <th className="data-table-header">Branch</th>
                   <th className="data-table-header">Date</th>
                   <th className="data-table-header">Status</th>
-                  <th className="data-table-header">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {filteredRequests.map((request) => (
                   <tr key={request.id} className="hover:bg-gray-50 transition-colors duration-200">
+                    <td className="data-table-cell">
+                      <button
+                        onClick={() => handleViewDetails(request)}
+                        className="primary-button text-sm py-1 px-3"
+                      >
+                        View & Respond
+                      </button>
+                    </td>
                     <td className="data-table-cell">
                       <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{request.id}</span>
                     </td>
@@ -1291,14 +1299,6 @@ function AdminDashboard() {
                     </td>
                     <td className="data-table-cell">
                       <StatusBadge status={request.status} />
-                    </td>
-                    <td className="data-table-cell">
-                      <button
-                        onClick={() => handleViewDetails(request)}
-                        className="primary-button text-sm py-1 px-3"
-                      >
-                        View & Respond
-                      </button>
                     </td>
                   </tr>
                 ))}
