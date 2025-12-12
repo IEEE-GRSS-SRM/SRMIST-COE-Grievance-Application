@@ -54,7 +54,7 @@ function RequestHistory({ refreshKey = 0 }) {
   const [resubmitFile, setResubmitFile] = useState(null);
   const [resubmitting, setResubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [deletingMine, setDeletingMine] = useState(false);
+  // const [deletingMine, setDeletingMine] = useState(false); // Disabled: delete all requests
 
   // Helper to fetch the student's requests
   const fetchStudentRequests = async () => {
@@ -65,7 +65,8 @@ function RequestHistory({ refreshKey = 0 }) {
         .select(`
             *,
             departments:department_id (name, code),
-            branches:branch_id (branch_name)
+            branches:branch_id (branch_name),
+            campuses:campus_id (campus)
           `)
         .eq('student_id', session.user.id)
         .order('created_at', { ascending: false });
@@ -173,46 +174,46 @@ function RequestHistory({ refreshKey = 0 }) {
     setResubmitFile(null);
   };
 
-  const handleDeleteSingle = async (request) => {
-    if (!request?.id || !session?.user) return;
-    const warn = request.status === 'terminated'
-      ? 'This request is TERMINATED. Are you sure you want to permanently delete it?'
-      : 'Are you sure you want to permanently delete this request?';
-    const ok = window.confirm(warn);
-    if (!ok) return;
-    try {
-      setDeletingId(request.id);
-      // Delete responses related to this request
-      const { error: respErr } = await supabase
-        .from('request_responses')
-        .delete()
-        .eq('request_id', request.id);
-      if (respErr) throw respErr;
-      // Delete the request, scoped to current user for safety
-      const { error: reqErr } = await supabase
-        .from('examination_requests')
-        .delete()
-        .eq('id', request.id)
-        .eq('student_id', session.user.id);
-      if (reqErr) throw reqErr;
-      // Update local state and close any open modals for this request
-      setRequests(prev => prev.filter(r => r.id !== request.id));
-      if (selectedRequest && selectedRequest.id === request.id) {
-        setSelectedRequest(null);
-        setResponses([]);
-      }
-      if (resubmitOpen && selectedRequest && selectedRequest.id === request.id) {
-        setResubmitOpen(false);
-        setResubmitText('');
-        setResubmitFile(null);
-      }
-    } catch (err) {
-      console.error('Delete request failed:', err);
-      alert('Failed to delete the request. ' + (err.message || ''));
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  // const handleDeleteSingle = async (request) => {
+  //   if (!request?.id || !session?.user) return;
+  //   const warn = request.status === 'terminated'
+  //     ? 'This request is TERMINATED. Are you sure you want to permanently delete it?'
+  //     : 'Are you sure you want to permanently delete this request?';
+  //   const ok = window.confirm(warn);
+  //   if (!ok) return;
+  //   try {
+  //     setDeletingId(request.id);
+  //     // Delete responses related to this request
+  //     const { error: respErr } = await supabase
+  //       .from('request_responses')
+  //       .delete()
+  //       .eq('request_id', request.id);
+  //     if (respErr) throw respErr;
+  //     // Delete the request, scoped to current user for safety
+  //     const { error: reqErr } = await supabase
+  //       .from('examination_requests')
+  //       .delete()
+  //       .eq('id', request.id)
+  //       .eq('student_id', session.user.id);
+  //     if (reqErr) throw reqErr;
+  //     // Update local state and close any open modals for this request
+  //     setRequests(prev => prev.filter(r => r.id !== request.id));
+  //     if (selectedRequest && selectedRequest.id === request.id) {
+  //       setSelectedRequest(null);
+  //       setResponses([]);
+  //     }
+  //     if (resubmitOpen && selectedRequest && selectedRequest.id === request.id) {
+  //       setResubmitOpen(false);
+  //       setResubmitText('');
+  //       setResubmitFile(null);
+  //     }
+  //   } catch (err) {
+  //     console.error('Delete request failed:', err);
+  //     alert('Failed to delete the request. ' + (err.message || ''));
+  //   } finally {
+  //     setDeletingId(null);
+  //   }
+  // };
 
   const handleResubmit = async () => {
     if (!selectedRequest) return;
@@ -328,52 +329,7 @@ function RequestHistory({ refreshKey = 0 }) {
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">{requests.length} {requests.length === 1 ? 'request' : 'requests'}</span>
           {profile?.role === 'student' && requests.length > 0 && (
-            <button
-              className={`danger-button text-xs py-1 px-2 ${deletingMine ? 'opacity-70 cursor-not-allowed' : ''}`}
-              disabled={deletingMine}
-              onClick={async () => {
-                if (deletingMine) return;
-                const hasTerminated = requests.some(r => r.status === 'terminated');
-                const message = hasTerminated
-                  ? 'Are you sure you want to delete ALL your requests? This includes terminated requests.'
-                  : 'Are you sure you want to delete ALL your requests?';
-                const ok = window.confirm(message);
-                if (!ok) return;
-                try {
-                  setDeletingMine(true);
-                  // fetch ids for this user (fresh to avoid race)
-                  const { data: myRows, error: fetchErr } = await supabase
-                    .from('examination_requests')
-                    .select('id')
-                    .eq('student_id', session.user.id);
-                  if (fetchErr) throw fetchErr;
-                  const ids = (myRows || []).map(r => r.id);
-                  if (ids.length === 0) return;
-                  // delete responses first
-                  const { error: delRespErr } = await supabase
-                    .from('request_responses')
-                    .delete()
-                    .in('request_id', ids);
-                  if (delRespErr) throw delRespErr;
-                  // delete requests
-                  const { error: delReqErr } = await supabase
-                    .from('examination_requests')
-                    .delete()
-                    .in('id', ids)
-                    .eq('student_id', session.user.id);
-                  if (delReqErr) throw delReqErr;
-                  // refresh
-                  await fetchStudentRequests();
-                } catch (err) {
-                  console.error('Delete my requests failed:', err);
-                  alert('Failed to delete your requests. ' + (err.message || ''));
-                } finally {
-                  setDeletingMine(false);
-                }
-              }}
-            >
-              {deletingMine ? 'Deleting…' : 'Delete All My Requests'}
-            </button>
+            <span className="text-xs text-gray-400" title="Bulk delete disabled">Delete All My Requests (disabled)</span>
           )}
         </div>
       </div>
@@ -398,6 +354,7 @@ function RequestHistory({ refreshKey = 0 }) {
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campus</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date
                 </th>
@@ -419,6 +376,7 @@ function RequestHistory({ refreshKey = 0 }) {
                   </td>
                   <td className="px-6 py-4"><div className="text-sm text-gray-900">{request.departments?.name || 'Unknown'}</div></td>
                   <td className="px-6 py-4"><div className="text-sm text-gray-900">{request.branches?.branch_name || '-'}</div></td>
+                  <td className="px-6 py-4"><div className="text-sm text-gray-900">{request.campuses?.campus || '-'}</div></td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-500">
                       {new Date(request.created_at).toLocaleDateString()}
@@ -455,14 +413,7 @@ function RequestHistory({ refreshKey = 0 }) {
                           Resubmit
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDeleteSingle(request)}
-                        disabled={deletingId === request.id}
-                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 ${deletingId === request.id ? 'opacity-70 cursor-not-allowed' : ''}`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h10"/></svg>
-                        {deletingId === request.id ? 'Deleting…' : 'Delete'}
-                      </button>
+                      {/* Delete button disabled */}
                     </div>
                   </td>
                 </tr>
@@ -514,6 +465,10 @@ function RequestHistory({ refreshKey = 0 }) {
                 <div>
                   <p className="text-xs text-gray-500">Branch</p>
                   <p className="text-sm">{selectedRequest.branches?.branch_name || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Campus</p>
+                  <p className="text-sm">{selectedRequest.campuses?.campus || '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Submitted On</p>

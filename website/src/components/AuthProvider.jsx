@@ -22,6 +22,21 @@ function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Centralized sign-out helper to avoid redirect loops on stale sessions
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'global' });
+      if (error) {
+        console.warn('Sign out warning:', error.message);
+      }
+    } catch (err) {
+      console.warn('Sign out exception:', err);
+    } finally {
+      setSession(null);
+      setAuthError(null);
+    }
+  };
+
   // Check if email domain is allowed
   const isAllowedEmail = (email) => {
     if (!email) return false;
@@ -41,7 +56,7 @@ function AuthProvider({ children }) {
       const userEmail = currentSession?.user?.email;
       if (!userEmail) {
         console.log('No email found in session, signing out');
-        await supabase.auth.signOut();
+        await signOut();
         setSession(null);
         setAuthError('No email found in authentication');
         return;
@@ -53,8 +68,7 @@ function AuthProvider({ children }) {
         setAuthError(null);
       } else {
         console.log('User email not from allowed domain:', userEmail);
-        await supabase.auth.signOut();
-        setSession(null);
+        await signOut();
         setAuthError('Please use an SRM email (@srmist.edu.in or @srmist.in)');
       }
     };
@@ -140,7 +154,7 @@ function AuthProvider({ children }) {
   }, [loading]);
 
   return (
-    <AuthContext.Provider value={{ session, supabase, authError, loading }}>
+    <AuthContext.Provider value={{ session, supabase, authError, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

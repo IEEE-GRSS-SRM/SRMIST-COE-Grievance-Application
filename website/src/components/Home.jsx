@@ -7,7 +7,7 @@ import AdminDashboard from './AdminDashboard';
 import ProfileSetup from './ProfileSetup';
 
 function Home() {
-  const { session, supabase, authError } = useContext(AuthContext);
+  const { session, supabase, authError, signOut } = useContext(AuthContext);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
@@ -115,6 +115,15 @@ function Home() {
     setRefreshKey((k) => k + 1);
   };
 
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
+
+  const handleProfileSetup = () => {
+    navigate('/profile-setup');
+  };
+
   if (loading) {
     return (
       <div className="page-container flex justify-center items-center">
@@ -138,7 +147,7 @@ function Home() {
             <p className="mt-2 text-red-600">{error || authError}</p>
           </div>
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={handleSignOut}
             className="secondary-button w-full"
           >
             Sign Out and Try Again
@@ -182,9 +191,19 @@ function Home() {
               <span>{profile.departments?.name || 'Department not set'}</span>
             </div>
           </div>
-          <div className="mt-4 md:mt-0">
+          <div className="mt-4 md:mt-0 flex items-center gap-3">
             <button
-              onClick={() => supabase.auth.signOut()}
+              onClick={handleProfileSetup}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-gray-700 font-medium"
+              title="Edit Profile"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+              </svg>
+              <span className="hidden sm:inline">Edit Profile</span>
+            </button>
+            <button
+              onClick={handleSignOut}
               className="danger-button flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

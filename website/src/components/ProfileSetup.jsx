@@ -14,6 +14,7 @@ function ProfileSetup() {
   const [degrees, setDegrees] = useState([]);
   const [filteredDegrees, setFilteredDegrees] = useState([]);
   const [degree, setDegree] = useState('');
+  const [campus, setCampus] = useState('');
   // Branches
   const [branches, setBranches] = useState([]);
   const [filteredBranches, setFilteredBranches] = useState([]);
@@ -21,8 +22,39 @@ function ProfileSetup() {
   const [email, setEmail] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
+  const [campuses, setCampuses] = useState([]);
   
   const navigate = useNavigate();
+
+  // useEffect to check if profile already exists
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    
+    // check if details are filled for this profile
+    const checkProfile = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .eq('is_profile_complete', true)
+          .single();
+
+        if (data && !error) {
+          setStudentId(data?.student_id || '');
+          setPhone(data?.phone || '');
+          setDepartment(data?.department_id ? data.department_id.toString() : '');
+          setDegree(data?.degree_id ? data.degree_id.toString() : '');
+          setBranch(data?.branch_id ? data.branch_id.toString() : '');
+          setCampus(data?.campus_id ? data.campus_id.toString() : '');
+        }
+      } catch (err) {
+        console.error('Error checking profile:', err);
+      }
+    }
+
+    checkProfile();
+  }, [session, supabase]);
 
   useEffect(() => {
     if (!session) {
@@ -37,6 +69,23 @@ function ProfileSetup() {
       }
       if (session.user.email) {
         setEmail(session.user.email);
+      }
+    }
+
+    const fetchCampuses = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('campuses')
+          .select('*')
+        if (error) {
+          console.error('Error fetching campuses:', error);
+          setError('Failed to load campuses. Please try again.');
+        } else {
+          setCampuses(data);
+        }
+      } catch (err) {
+        console.error('Unexpected error:', err);
+        setError('An unexpected error occurred');
       }
     }
 
@@ -100,6 +149,7 @@ function ProfileSetup() {
     fetchDepartments();
     fetchDegrees();
     fetchBranches();
+    fetchCampuses();
   }, [session, supabase, navigate]);
 
   // Filter degrees when department changes
@@ -108,13 +158,13 @@ function ProfileSetup() {
       const filtered = degrees.filter(deg => deg.department_id === parseInt(department));
       setFilteredDegrees(filtered);
       // Reset degree selection if current selection is not valid for new department
-      if (!filtered.find(deg => deg.id === degree)) {
+      if (degree && !filtered.find(deg => deg.id === parseInt(degree))) {
         setDegree('');
       }
       // Filter branches for selected department
       const fb = branches.filter(b => b.department_id === parseInt(department));
       setFilteredBranches(fb);
-      if (!fb.find(b => b.id === parseInt(branch))) {
+      if (branch && !fb.find(b => b.id === parseInt(branch))) {
         setBranch('');
       }
     } else {
@@ -123,7 +173,7 @@ function ProfileSetup() {
       setFilteredBranches([]);
       setBranch('');
     }
-  }, [department, degrees, branches]);
+  }, [department, degrees, branches, degree, branch]);
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
@@ -184,7 +234,8 @@ function ProfileSetup() {
           phone: phone,
           avatar_url: avatar_url,
           is_profile_complete: true,
-          is_active: true
+          is_active: true,
+          campus_id: campus || null,
         });
 
       if (profileError) {
@@ -354,9 +405,27 @@ function ProfileSetup() {
             )}
           </div>
           
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Campus</label>
+            <select
+              value={campus}
+              onChange={(e) => setCampus(e.target.value)}
+              className="form-select"
+              required
+              disabled={false} 
+            >
+              <option value="">Select Your Campus</option>
+              {campuses.map((camp) => (
+                <option key={camp.id} value={camp.id}>
+                  {camp.campus}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             type="submit"
-            disabled={loading || !department || !degree || !branch}
+            disabled={loading || !department || !degree || !branch || !campus}
             className={`w-full primary-button py-3 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             {loading ? (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from './AuthProvider';
 
 function StatusBadge({ status }) {
@@ -17,7 +18,8 @@ function StatusBadge({ status }) {
 }
 
 function AdminDashboard() {
-  const { session, supabase } = useContext(AuthContext);
+  const { session, supabase, signOut } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -52,6 +54,11 @@ function AdminDashboard() {
   const [pieStats, setPieStats] = useState({ total: 0, byStatus: { pending: 0, escalated: 0, resolved: 0, terminated: 0 } });
   const [overviewRangeStats, setOverviewRangeStats] = useState({ departments: 0, branches: 0, byStatus: { pending: 0, escalated: 0, resolved: 0, terminated: 0 } });
 
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
+
   const showToast = (msg, type = 'info') => {
     setToastMessage(msg);
     setToastType(type);
@@ -84,7 +91,7 @@ function AdminDashboard() {
           setLoading(false);
           return;
         }
-        
+  
   // Set default tab for super_admin to home, else pending
   const initialTab = data.role === 'super_admin' ? 'home' : 'pending';
         setTab(initialTab);
@@ -147,6 +154,7 @@ function AdminDashboard() {
           *,
           departments:department_id(*),
           branches:branch_id(*),
+          campuses:campus_id(campus),
           student:student_id(id, full_name, email, student_id, phone),
           responses:request_responses(*)
         `)
@@ -857,7 +865,7 @@ function AdminDashboard() {
             </div>
           </div>
           <div className="mt-4 md:mt-0 flex flex-col md:flex-row gap-2">
-            {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
+            {(profile?.role === 'super_admin') && (
               <button
                 onClick={async () => {
                   if (deletingResolved) return;
@@ -912,7 +920,7 @@ function AdminDashboard() {
             )}
             {/* Email test and queue buttons removed */}
             <button
-              onClick={() => supabase.auth.signOut()}
+              onClick={handleSignOut}
               className="danger-button flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -1260,6 +1268,7 @@ function AdminDashboard() {
                   <th className="data-table-header">Student</th>
                   <th className="data-table-header">Department</th>
                   <th className="data-table-header">Branch</th>
+                  <th className="data-table-header">Campus</th>
                   <th className="data-table-header">Date</th>
                   <th className="data-table-header">Status</th>
                 </tr>
@@ -1291,6 +1300,9 @@ function AdminDashboard() {
                     </td>
                     <td className="data-table-cell">
                       <div className="text-sm">{request.branches?.branch_name || '-'}</div>
+                    </td>
+                    <td className="data-table-cell">
+                      <div className="text-sm">{request.campuses?.campus || '-'}</div>
                     </td>
                     <td className="data-table-cell">
                       <div className="text-sm text-gray-500">
@@ -1350,6 +1362,11 @@ function AdminDashboard() {
                     <span className="block text-xs text-gray-500">Type</span>
                     <span className="capitalize text-sm">{selectedRequest.request_type.replace('_', ' ')}</span>
                   </div>
+                    
+                    <div>
+                      <span className="block text-xs text-gray-500">Campus</span>
+                      <span className="text-sm">{selectedRequest.campuses?.campus || '-'}</span>
+                    </div>
                   
                   <div>
                     <span className="block text-xs text-gray-500">Priority</span>
@@ -1401,6 +1418,10 @@ function AdminDashboard() {
                   <div>
                     <span className="block text-xs text-gray-500">Branch</span>
                     <span className="block text-sm">{selectedRequest.branches?.branch_name || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-gray-500">Campus</span>
+                    <span className="block text-sm">{selectedRequest.campuses?.campus || '-'}</span>
                   </div>
                 </div>
               </div>

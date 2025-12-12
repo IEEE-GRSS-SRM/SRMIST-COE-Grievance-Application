@@ -84,6 +84,8 @@ function RequestForm({ onRequestSubmitted }) {
   const [branches, setBranches] = useState([]);
   const [filteredBranches, setFilteredBranches] = useState([]);
   const [lastRequestId, setLastRequestId] = useState('');
+  const [campuses, setCampuses] = useState([]);
+  const [campus, setCampus] = useState('');
 
   useEffect(() => {
     if (!session?.user) return;
@@ -157,6 +159,19 @@ function RequestForm({ onRequestSubmitted }) {
               }
               setBranch(br.id);
             }
+          }
+        }
+
+        // Fetch campuses (schema like ProfileSetup)
+        const { data: campusData, error: campusError } = await supabase
+          .from('campuses')
+          .select('*');
+        if (campusError) {
+          console.error('Error fetching campuses:', campusError);
+        } else {
+          setCampuses(campusData || []);
+          if (profileData?.campus_id) {
+            setCampus(profileData.campus_id.toString());
           }
         }
       } catch (err) {
@@ -245,6 +260,9 @@ function RequestForm({ onRequestSubmitted }) {
       if (!branch) {
         throw new Error('Please select a branch');
       }
+      if (!campus) {
+        throw new Error('Please select a campus');
+      }
 
       let attachmentUrl = null;
 
@@ -300,6 +318,7 @@ function RequestForm({ onRequestSubmitted }) {
           degree,
           department_id: department,
           branch_id: branch,
+          campus_id: parseInt(campus),
           attachments: attachmentUrl ? [attachmentUrl] : [],
           status: 'pending'
         })
@@ -491,6 +510,23 @@ function RequestForm({ onRequestSubmitted }) {
           )}
         </div>
         
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Campus</label>
+          <select
+            value={campus}
+            onChange={(e) => setCampus(e.target.value)}
+            className="form-select"
+            required
+          >
+            <option value="">Select Your Campus</option>
+            {campuses.map((camp) => (
+              <option key={camp.id} value={camp.id}>
+                {camp.campus}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div>
           <div className="flex justify-between items-center mb-1">
             <label className="block text-sm font-medium text-gray-700">Description</label>
