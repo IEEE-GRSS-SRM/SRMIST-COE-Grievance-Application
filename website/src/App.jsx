@@ -6,6 +6,7 @@ import Home from './components/Home';
 import ProfileSetup from './components/ProfileSetup';
 import AdminDashboard from './components/AdminDashboard';
 import ProjectIndex from './components/ProjectIndex';
+import ResetPassword from './components/ResetPassword';
 import './styles.css';
 
 function ProtectedRoute({ element }) {
@@ -78,6 +79,7 @@ function AppContent() {
       <Route path="/home" element={<ProtectedRoute element={<Home />} />} />
       <Route path="/profile-setup" element={<ProtectedRoute element={<ProfileSetup />} />} />
       <Route path="/admin" element={<ProtectedRoute element={<AdminDashboard />} />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/index" element={<ProjectIndex />} />
       <Route path="/" element={<Login />} />
       <Route path="*" element={<Navigate to="/" replace />} />
